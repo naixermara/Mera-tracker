@@ -47,6 +47,19 @@ function currentMonthKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+function detectPaymentStatus(note) {
+  if (!note) return null;
+  const n = note.trim();
+  if (!n) return null;
+  if (n.includes("ខ្សះ") || n.includes("នៅខ្សះ")) return "owes";
+  if (n.includes("ទូទាត់")) return "paid";
+  return null;
+}
+function extractOwedAmount(note) {
+  if (!note) return null;
+  const m = note.match(/[\d]+\.?[\d]*/);
+  return m ? parseFloat(m[0]) : null;
+}
 function fmtDate(d) {
   if (!d) return "";
   return new Date(d + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
@@ -72,9 +85,9 @@ const C = {
   text: "#F3F1EA",
   textDim: "#8B8FA3",
   textFaint: "#5B5F70",
-  gold: "#C9A961",
-  goldBright: "#E0C288",
-  goldDim: "#8A7440",
+  gold: "#9B7FC7",
+  goldBright: "#BBA3E0",
+  goldDim: "#6B5590",
   emerald: "#5FBF8F",
   emeraldBg: "#132621",
   amber: "#E0B44C",
@@ -97,6 +110,7 @@ export default function MeraConsignmentApp() {
   const [showPayments, setShowPayments] = useState(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showVisitedBreakdown, setShowVisitedBreakdown] = useState(false);
+  const [showOwedBreakdown, setShowOwedBreakdown] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [logForm, setLogForm] = useState(emptyLogForm);
   const [storeQuery, setStoreQuery] = useState("");
@@ -200,6 +214,7 @@ export default function MeraConsignmentApp() {
     setShowPayments(storeId);
     setShowBreakdown(false);
     setShowVisitedBreakdown(false);
+    setShowOwedBreakdown(false);
   }
 
   function closeLogModal() {
@@ -228,7 +243,9 @@ export default function MeraConsignmentApp() {
       const visitedThisMonth = storeVisits.some((x) => isThisMonth(x.date));
       const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim());
       const latestNote = notedVisits.length ? notedVisits[notedVisits.length - 1].notes : "";
-      return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory };
+      const paymentStatus = detectPaymentStatus(latestNote);
+      const owedAmount = paymentStatus === "owes" ? extractOwedAmount(latestNote) : null;
+      return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, paymentStatus, owedAmount };
     });
   }, [visits, selectedMonth]);
 
@@ -256,8 +273,9 @@ export default function MeraConsignmentApp() {
   const stats = useMemo(() => {
     const totalRemaining = enriched.reduce((a, s) => a + s.totalRemaining, 0);
     const totalCollected = enriched.reduce((a, s) => a + s.totalCollected, 0);
+    const totalOwed = enriched.reduce((a, s) => a + (s.owedAmount || 0), 0);
     const visitedCount = enriched.filter((s) => s.visitedThisMonth).length;
-    return { totalRemaining, totalCollected, visitedCount, total: enriched.length };
+    return { totalRemaining, totalCollected, totalOwed, visitedCount, total: enriched.length };
   }, [enriched]);
 
   const monthlyBreakdown = useMemo(() => {
@@ -270,6 +288,12 @@ export default function MeraConsignmentApp() {
     return enriched
       .filter((s) => s.visitedThisMonth)
       .sort((a, b) => (b.lastVisitDate || "").localeCompare(a.lastVisitDate || ""));
+  }, [enriched]);
+
+  const owedBreakdown = useMemo(() => {
+    return enriched
+      .filter((s) => s.owedAmount != null && s.owedAmount > 0)
+      .sort((a, b) => b.owedAmount - a.owedAmount);
   }, [enriched]);
 
   const storeMatches = useMemo(() => {
@@ -352,6 +376,13 @@ export default function MeraConsignmentApp() {
             onClick={visitedBreakdown.length ? () => setShowVisitedBreakdown(!showVisitedBreakdown) : undefined}
             active={showVisitedBreakdown}
           />
+          <StatCard
+            icon={AlertCircle}
+            label="Still owed"
+            value={"$" + stats.totalOwed.toFixed(2)}
+            onClick={owedBreakdown.length ? () => setShowOwedBreakdown(!showOwedBreakdown) : undefined}
+            active={showOwedBreakdown}
+          />
         </div>
 
         {showBreakdown && (
@@ -405,6 +436,36 @@ export default function MeraConsignmentApp() {
                   <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
                   <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: C.emerald, flexShrink: 0, marginLeft: 12 }}>
                     {fmtDate(s.lastVisitDate)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showOwedBreakdown && (
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 22 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+              Still owed — by store
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {owedBreakdown.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => jumpToStore(s.name, s.id)}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    background: "none", border: "none", borderTop: `1px solid ${C.border}`,
+                    padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg2}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "none"}
+                >
+                  <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                  <span style={{ display: "flex", gap: 12, alignItems: "baseline", flexShrink: 0, marginLeft: 12 }}>
+                    <span style={{ fontSize: 11, color: C.textFaint }}>collected ${s.totalCollected.toFixed(2)}</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.owedAmount.toFixed(2)}</span>
                   </span>
                 </button>
               ))}
@@ -617,7 +678,18 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
             <div style={{ fontSize: 11, color: C.textFaint }}>Day {store.day} · first sent {fmtDate(store.firstSent)}</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {store.paymentStatus && (
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 999,
+              background: store.paymentStatus === "paid" ? C.emeraldBg : C.roseBg,
+              color: store.paymentStatus === "paid" ? C.emerald : C.rose,
+              textTransform: "uppercase", letterSpacing: "0.04em",
+              border: `1px solid ${store.paymentStatus === "paid" ? C.emerald : C.rose}30`,
+            }}>
+              {store.paymentStatus === "paid" ? "Paid" : "Owes"}
+            </span>
+          )}
           <span style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: visitedBg, color: visitedColor, textTransform: "uppercase", letterSpacing: "0.04em", border: `1px solid ${visitedColor}30` }}>
             {store.visitedThisMonth ? "Visited" : "Not yet"}
           </span>
@@ -650,6 +722,9 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
               Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${store.totalCollected.toFixed(2)}</b>
             </button>
             <span style={{ color: C.textFaint }}>All-time: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>${store.allTimeCollected.toFixed(2)}</b></span>
+            {store.owedAmount != null && (
+              <span style={{ color: C.rose }}>Still owes: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.rose }}>${store.owedAmount.toFixed(2)}</b></span>
+            )}
             {store.lastVisitDate && <span>Last visited {fmtDate(store.lastVisitDate)}</span>}
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}><ClipboardList size={11} />{store.visitCount} visit{store.visitCount === 1 ? "" : "s"} logged</span>
           </div>
