@@ -47,30 +47,6 @@ function currentMonthKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
-function detectPaymentStatus(note) {
-  if (!note) return null;
-  const n = note.trim();
-  if (!n) return null;
-  // Check negation first — "មិនទាន់..." (not yet) means NOT paid, even if the word ទូទាត់ appears inside it
-  if (n.includes("មិនទាន់")) return "owes";
-  if (n.includes("ខ្វះ") || n.includes("នៅខ្វះ")) return "owes";
-  if (n.includes("ទូទាត់")) return "paid";
-  return null;
-}
-function extractOwedAmount(note) {
-  if (!note) return null;
-  const n = note.trim();
-  const oweWords = ["នៅខ្វះ", "ខ្វះ"];
-  let idx = -1, wordLen = 0;
-  for (const w of oweWords) {
-    const i = n.indexOf(w);
-    if (i !== -1) { idx = i; wordLen = w.length; break; }
-  }
-  if (idx === -1) return null;
-  const rest = n.slice(idx + wordLen);
-  const m = rest.match(/([\d]+\.?[\d]*)\s*\$/);
-  return m ? parseFloat(m[1]) : null;
-}
 function fmtDate(d) {
   if (!d) return "";
   return new Date(d + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
@@ -83,6 +59,7 @@ const emptyLogForm = {
   sold: "",
   returned: "",
   paid: "",
+  owed: "",
   notes: "",
 };
 
@@ -155,6 +132,7 @@ export default function MeraConsignmentApp() {
             sold: Number(r.sold),
             returned: Number(r.returned),
             paid: Number(r.paid),
+            owed: Number(r.owed || 0),
             notes: r.notes || "",
           }))
         );
@@ -177,6 +155,7 @@ export default function MeraConsignmentApp() {
           sold: v.sold,
           returned: v.returned,
           paid: v.paid,
+          owed: v.owed,
           notes: v.notes,
         }),
       });
@@ -190,6 +169,7 @@ export default function MeraConsignmentApp() {
           sold: Number(inserted.sold),
           returned: Number(inserted.returned),
           paid: Number(inserted.paid),
+          owed: Number(inserted.owed || 0),
           notes: inserted.notes || "",
         },
       ]);
@@ -211,6 +191,7 @@ export default function MeraConsignmentApp() {
       sold: parseFloat(logForm.sold) || 0,
       returned: parseFloat(logForm.returned) || 0,
       paid: parseFloat(logForm.paid) || 0,
+      owed: parseFloat(logForm.owed) || 0,
       notes: logForm.notes,
     };
     await addVisit(v);
@@ -254,8 +235,9 @@ export default function MeraConsignmentApp() {
       const visitedThisMonth = storeVisits.some((x) => isThisMonth(x.date));
       const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim());
       const latestNote = notedVisits.length ? notedVisits[notedVisits.length - 1].notes : "";
-      const paymentStatus = detectPaymentStatus(latestNote);
-      const owedAmount = paymentStatus === "owes" ? extractOwedAmount(latestNote) : null;
+      const sortedVisits = [...storeVisits].sort((a, b) => a.date.localeCompare(b.date));
+      const owedAmount = sortedVisits.length ? sortedVisits[sortedVisits.length - 1].owed : 0;
+      const paymentStatus = owedAmount > 0 ? "owes" : (storeVisits.some((x) => x.paid > 0) ? "paid" : null);
       return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, paymentStatus, owedAmount };
     });
   }, [visits, selectedMonth]);
@@ -631,13 +613,17 @@ export default function MeraConsignmentApp() {
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>
-              <Field label="Payment received ($)" style={{ flex: 1 }}>
+              <Field label="ទូទាត់ (Paid $)" style={{ flex: 1 }}>
                 <input type="number" step="0.01" value={logForm.paid} onChange={(e) => setLogForm({ ...logForm, paid: e.target.value })} style={inputStyle} placeholder="0.00" />
               </Field>
-              <Field label="Visit date" style={{ flex: 1 }}>
-                <input type="date" value={logForm.date} onChange={(e) => setLogForm({ ...logForm, date: e.target.value })} style={inputStyle} />
+              <Field label="នៅខ្វះ (Still owe $)" style={{ flex: 1 }}>
+                <input type="number" step="0.01" value={logForm.owed} onChange={(e) => setLogForm({ ...logForm, owed: e.target.value })} style={inputStyle} placeholder="0.00" />
               </Field>
             </div>
+
+            <Field label="Visit date">
+              <input type="date" value={logForm.date} onChange={(e) => setLogForm({ ...logForm, date: e.target.value })} style={inputStyle} />
+            </Field>
 
             <Field label="Notes (optional)">
               <textarea value={logForm.notes} onChange={(e) => setLogForm({ ...logForm, notes: e.target.value })} style={{ ...inputStyle, minHeight: 55 }} />
@@ -733,7 +719,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
               Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${store.totalCollected.toFixed(2)}</b>
             </button>
             <span style={{ color: C.textFaint }}>All-time: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>${store.allTimeCollected.toFixed(2)}</b></span>
-            {store.owedAmount != null && (
+            {store.owedAmount > 0 && (
               <span style={{ color: C.rose }}>Still owes: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.rose }}>${store.owedAmount.toFixed(2)}</b></span>
             )}
             {store.lastVisitDate && <span>Last visited {fmtDate(store.lastVisitDate)}</span>}
