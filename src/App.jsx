@@ -57,8 +57,17 @@ function detectPaymentStatus(note) {
 }
 function extractOwedAmount(note) {
   if (!note) return null;
-  const m = note.match(/[\d]+\.?[\d]*/);
-  return m ? parseFloat(m[0]) : null;
+  const n = note.trim();
+  const oweWords = ["នៅខ្សះ", "ខ្សះ"];
+  let idx = -1, wordLen = 0;
+  for (const w of oweWords) {
+    const i = n.indexOf(w);
+    if (i !== -1) { idx = i; wordLen = w.length; break; }
+  }
+  if (idx === -1) return null;
+  const rest = n.slice(idx + wordLen);
+  const m = rest.match(/([\d]+\.?[\d]*)\s*\$/);
+  return m ? parseFloat(m[1]) : null;
 }
 function fmtDate(d) {
   if (!d) return "";
