@@ -51,6 +51,8 @@ function detectPaymentStatus(note) {
   if (!note) return null;
   const n = note.trim();
   if (!n) return null;
+  // Check negation first — "មិនទាន់..." (not yet) means NOT paid, even if the word ទូទាត់ appears inside it
+  if (n.includes("មិនទាន់")) return "owes";
   if (n.includes("ខ្សះ") || n.includes("នៅខ្សះ")) return "owes";
   if (n.includes("ទូទាត់")) return "paid";
   return null;
