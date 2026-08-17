@@ -336,8 +336,8 @@ export default function MeraConsignmentApp() {
       <div style={{ maxWidth: 920, margin: "0 auto", padding: "40px 20px 0" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, letterSpacing: "0.22em", textTransform: "uppercase", color: C.gold, fontWeight: 600 }}>
-              <Sparkles size={12} /> MÈRA
+            <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 16, letterSpacing: "0.22em", textTransform: "uppercase", color: C.gold, fontWeight: 700 }}>
+              <Sparkles size={16} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
               Consignment Operations
