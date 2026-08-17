@@ -53,14 +53,14 @@ function detectPaymentStatus(note) {
   if (!n) return null;
   // Check negation first — "មិនទាន់..." (not yet) means NOT paid, even if the word ទូទាត់ appears inside it
   if (n.includes("មិនទាន់")) return "owes";
-  if (n.includes("ខ្សះ") || n.includes("នៅខ្សះ")) return "owes";
+  if (n.includes("ខ្វះ") || n.includes("នៅខ្វះ")) return "owes";
   if (n.includes("ទូទាត់")) return "paid";
   return null;
 }
 function extractOwedAmount(note) {
   if (!note) return null;
   const n = note.trim();
-  const oweWords = ["នៅខ្សះ", "ខ្សះ"];
+  const oweWords = ["នៅខ្វះ", "ខ្វះ"];
   let idx = -1, wordLen = 0;
   for (const w of oweWords) {
     const i = n.indexOf(w);
