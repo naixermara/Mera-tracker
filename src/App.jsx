@@ -26,8 +26,8 @@ async function sbFetch(path, options = {}) {
 
 const PRODUCTS = [
   { key: "Panty Liner", label: "Panty Liner", initKey: "pl" },
-  { key: "Night", label: "Night (\u1799\u1794\u17cb)", initKey: "night" },
-  { key: "Day", label: "Day (\u1790\u17d2\u1784\u17c3)", initKey: "dayp" },
+  { key: "Night", label: "Night (យប់)", initKey: "night" },
+  { key: "Day", label: "Day (ថ្ងៃ)", initKey: "dayp" },
 ];
 
 function todayStr() {
@@ -192,9 +192,16 @@ export default function MeraConsignmentApp() {
   async function deleteVisit(id) {
     try {
       await sbFetch(`visits?id=eq.${id}`, { method: "DELETE" });
+      // Verify it's actually gone by re-fetching this specific row from the database
+      const check = await sbFetch(`visits?id=eq.${id}&select=id`);
+      if (check && check.length > 0) {
+        alert("The delete request was sent, but the row is STILL in the database. This means the database is rejecting the delete silently (likely a permissions issue), not the app itself.");
+        return;
+      }
       setVisits((prev) => (prev || []).filter((v) => v.id !== id));
       setSaveError(false);
     } catch (e) {
+      alert("Delete failed with an error: " + e.message);
       setSaveError(true);
     }
   }
@@ -315,7 +322,7 @@ export default function MeraConsignmentApp() {
       const visitedThisMonth = storeVisits.some((x) => isThisMonth(x.date));
       const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim());
       const latestNote = notedVisits.length ? notedVisits[notedVisits.length - 1].notes : "";
-      // Paid/Owes status resets each month \u2014 based only on visits within the selected month,
+      // Paid/Owes status resets each month — based only on visits within the selected month,
       // not the store's all-time history. No visit logged this month = no badge shown.
       const lastVisitDateInMonth = monthVisits.length ? monthVisits.map((x) => x.date).sort().slice(-1)[0] : null;
       const owedAmount = lastVisitDateInMonth
@@ -455,7 +462,7 @@ export default function MeraConsignmentApp() {
 
         {saveError && (
           <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, margin: "18px 0", border: `1px solid ${C.rose}30` }}>
-            Couldn't save \u2014 try again.
+            Couldn't save — try again.
           </div>
         )}
 
@@ -614,12 +621,12 @@ export default function MeraConsignmentApp() {
         {salesSummary.totalUnits > 0 && (
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", marginBottom: 22 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
-              Sales \u2014 {monthLabel(selectedMonth)}
+              Sales — {monthLabel(selectedMonth)}
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
               <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 26, fontWeight: 600, color: C.gold }}>{salesSummary.totalUnits.toLocaleString()}</span>
               <span style={{ fontSize: 13, color: C.textDim }}>units sold</span>
-              <span style={{ color: C.textFaint }}>\u00b7</span>
+              <span style={{ color: C.textFaint }}>·</span>
               <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: C.emerald }}>${salesSummary.totalPaid.toFixed(2)}</span>
               <span style={{ fontSize: 13, color: C.textDim }}>collected</span>
             </div>
@@ -757,7 +764,7 @@ export default function MeraConsignmentApp() {
 
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                Products \u2014 sold / returned
+                Products — sold / returned
               </label>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
                 <span></span>
@@ -766,8 +773,8 @@ export default function MeraConsignmentApp() {
               </div>
               {[
                 { label: "Panty Liner", soldKey: "plSold", retKey: "plReturned" },
-                { label: "Night (\u1799\u1794\u17cb)", soldKey: "nightSold", retKey: "nightReturned" },
-                { label: "Day (\u1790\u17d2\u1784\u17c3)", soldKey: "daySold", retKey: "dayReturned" },
+                { label: "Night (យប់)", soldKey: "nightSold", retKey: "nightReturned" },
+                { label: "Day (ថ្ងៃ)", soldKey: "daySold", retKey: "dayReturned" },
               ].map((p) => (
                 <div key={p.soldKey} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6, alignItems: "center" }}>
                   <span style={{ fontSize: 13, color: C.text }}>{p.label}</span>
