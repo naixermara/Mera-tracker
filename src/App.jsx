@@ -19,7 +19,9 @@ async function sbFetch(path, options = {}) {
     const text = await res.text();
     throw new Error(`Supabase error ${res.status}: ${text}`);
   }
-  return res.json();
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text);
 }
 
 const PRODUCTS = [
