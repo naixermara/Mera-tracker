@@ -769,9 +769,27 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9, marginBottom: 13 }}>
             {store.products.map((p) => (
               <div key={p.key} style={{ background: C.bg2, borderRadius: 9, padding: "9px 11px", border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>{p.label}</div>
-                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, fontWeight: 600, marginTop: 3, color: C.text }}>{p.remaining}</div>
-                <div style={{ fontSize: 10, color: C.textFaint }}>of {p.init}{p.returned > 0 ? ` \u00b7 ${p.returned} returned` : ""}</div>
+                <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600, marginBottom: 6 }}>{p.label}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.textFaint, marginBottom: 2 }}>
+                  <span>\u178a\u17c1\u1798\u1782\u17d2\u179a\u17b6 (opening)</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>{p.init}</span>
+                </div>
+                {p.sold > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.textFaint, marginBottom: 2 }}>
+                    <span>sold</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>{p.sold}</span>
+                  </div>
+                )}
+                {p.returned > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.textFaint, marginBottom: 2 }}>
+                    <span>returned</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.amber }}>{p.returned}</span>
+                  </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 4, paddingTop: 4, borderTop: `1px solid ${C.border}` }}>
+                  <span style={{ color: C.textDim, fontWeight: 600 }}>at store now</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, fontWeight: 600, color: C.text }}>{p.remaining}</span>
+                </div>
               </div>
             ))}
           </div>
