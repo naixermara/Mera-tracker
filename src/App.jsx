@@ -25,9 +25,9 @@ async function sbFetch(path, options = {}) {
 }
 
 const PRODUCTS = [
-  { key: "Panty Liner", label: "Panty Liner", initKey: "pl" },
-  { key: "Night", label: "Night (យប់)", initKey: "night" },
-  { key: "Day", label: "Day (ថ្ងៃ)", initKey: "dayp" },
+  { key: "Panty Liner", label: "Panty Liner", initKey: "pl", priceKey: "plPrice" },
+  { key: "Night", label: "Night (យប់)", initKey: "night", priceKey: "nightPrice" },
+  { key: "Day", label: "Day (ថ្ងៃ)", initKey: "dayp", priceKey: "dayPrice" },
 ];
 
 function todayStr() {
@@ -129,6 +129,9 @@ export default function MeraConsignmentApp() {
             pl: r.pl_initial,
             night: r.night_initial,
             dayp: r.day_initial,
+            plPrice: Number(r.pl_price || 0),
+            nightPrice: Number(r.night_price || 0),
+            dayPrice: Number(r.day_price || 0),
           }))
         );
         setVisits(
@@ -310,9 +313,13 @@ export default function MeraConsignmentApp() {
         const sold = storeVisits.filter((x) => x.product === p.key).reduce((a, x) => a + x.sold, 0);
         const returned = storeVisits.filter((x) => x.product === p.key).reduce((a, x) => a + x.returned, 0);
         const remaining = Math.max(0, init - sold - returned);
-        return { ...p, init, sold, returned, remaining };
+        const price = s[p.priceKey] || 0;
+        const value = remaining * price;
+        return { ...p, init, sold, returned, remaining, price, value };
       });
       const totalRemaining = products.reduce((a, p) => a + p.remaining, 0);
+      const totalValue = products.reduce((a, p) => a + p.value, 0);
+      const hasPricing = products.some((p) => p.price > 0);
       const monthVisits = selectedMonth ? storeVisits.filter((x) => monthKey(x.date) === selectedMonth) : storeVisits;
       const totalCollected = monthVisits.reduce((a, x) => a + x.paid, 0);
       const allTimeCollected = storeVisits.reduce((a, x) => a + x.paid, 0);
@@ -330,7 +337,7 @@ export default function MeraConsignmentApp() {
         : 0;
       const paymentStatus = owedAmount > 0 ? "owes" : (monthVisits.some((x) => x.paid > 0) ? "paid" : null);
       const fullHistory = [...storeVisits].sort((a, b) => b.date.localeCompare(a.date));
-      return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount, fullHistory };
+      return { ...s, products, totalRemaining, totalValue, hasPricing, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount, fullHistory };
     });
   }, [visits, selectedMonth]);
 
@@ -359,8 +366,9 @@ export default function MeraConsignmentApp() {
     const totalRemaining = enriched.reduce((a, s) => a + s.totalRemaining, 0);
     const totalCollected = enriched.reduce((a, s) => a + s.totalCollected, 0);
     const totalOwed = enriched.reduce((a, s) => a + (s.owedAmount || 0), 0);
+    const totalStockValue = enriched.reduce((a, s) => a + s.totalValue, 0);
     const visitedCount = enriched.filter((s) => s.visitedThisMonth).length;
-    return { totalRemaining, totalCollected, totalOwed, visitedCount, total: enriched.length };
+    return { totalRemaining, totalCollected, totalOwed, totalStockValue, visitedCount, total: enriched.length };
   }, [enriched]);
 
   const salesSummary = useMemo(() => {
@@ -472,6 +480,7 @@ export default function MeraConsignmentApp() {
             icon={Package}
             label="Units remaining"
             value={stats.totalRemaining.toLocaleString()}
+            subtitle={stats.totalStockValue > 0 ? "≈ $" + stats.totalStockValue.toFixed(2) : undefined}
             onClick={remainingBreakdown.length ? () => setShowRemainingBreakdown(!showRemainingBreakdown) : undefined}
             active={showRemainingBreakdown}
           />
@@ -820,7 +829,7 @@ export default function MeraConsignmentApp() {
   );
 }
 
-function StatCard({ icon: Icon, label, value, onClick, active }) {
+function StatCard({ icon: Icon, label, value, subtitle, onClick, active }) {
   return (
     <div
       className="statcard"
@@ -835,6 +844,7 @@ function StatCard({ icon: Icon, label, value, onClick, active }) {
         <Icon size={13} color={C.gold} /> {label}
       </div>
       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.text }}>{value}</div>
+      {subtitle && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: C.emerald, marginTop: 2 }}>{subtitle}</div>}
       {onClick && <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>{active ? "Hide breakdown" : "Tap to see by store"}</div>}
     </div>
   );
@@ -904,6 +914,12 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                   <span style={{ color: C.textDim, fontWeight: 600 }}>at store now</span>
                   <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, fontWeight: 600, color: C.text }}>{p.remaining}</span>
                 </div>
+                {p.price > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.emerald, marginTop: 2 }}>
+                    <span>value (@${p.price.toFixed(2)})</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${p.value.toFixed(2)}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -929,6 +945,9 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
             </span>
             {store.owedAmount > 0 && (
               <span style={{ color: C.rose }}>Still owes: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.rose }}>${store.owedAmount.toFixed(2)}</b></span>
+            )}
+            {store.hasPricing && (
+              <span style={{ color: C.gold }}>Stock value: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold }}>${store.totalValue.toFixed(2)}</b></span>
             )}
             {store.lastVisitDate && <span>Last visited {fmtDate(store.lastVisitDate)}</span>}
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}><ClipboardList size={11} />{store.visitCount} visit{store.visitCount === 1 ? "" : "s"} logged</span>
