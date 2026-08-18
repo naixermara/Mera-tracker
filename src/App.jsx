@@ -107,6 +107,10 @@ export default function MeraConsignmentApp() {
   const [showOwedBreakdown, setShowOwedBreakdown] = useState(false);
   const [showRemainingBreakdown, setShowRemainingBreakdown] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [showNewStore, setShowNewStore] = useState(false);
+  const [newStoreForm, setNewStoreForm] = useState({
+    name: "", day: "", firstSent: todayStr(), pl: "", night: "", dayp: "", plPrice: "", nightPrice: "", dayPrice: "",
+  });
   const [logForm, setLogForm] = useState(emptyLogForm);
   const [logFormError, setLogFormError] = useState(null);
   const [storeQuery, setStoreQuery] = useState("");
@@ -231,6 +235,66 @@ export default function MeraConsignmentApp() {
     }
   }
 
+  async function addStore(newStore) {
+    try {
+      const [inserted] = await sbFetch("stores", {
+        method: "POST",
+        body: JSON.stringify({
+          day: newStore.day,
+          name: newStore.name,
+          first_sent: newStore.firstSent,
+          pl_initial: newStore.pl,
+          night_initial: newStore.night,
+          day_initial: newStore.dayp,
+          pl_price: newStore.plPrice,
+          night_price: newStore.nightPrice,
+          day_price: newStore.dayPrice,
+        }),
+      });
+      setStores((prev) => [
+        ...prev,
+        {
+          id: inserted.id,
+          day: inserted.day,
+          name: inserted.name,
+          firstSent: inserted.first_sent,
+          pl: inserted.pl_initial,
+          night: inserted.night_initial,
+          dayp: inserted.day_initial,
+          plPrice: Number(inserted.pl_price || 0),
+          nightPrice: Number(inserted.night_price || 0),
+          dayPrice: Number(inserted.day_price || 0),
+        },
+      ]);
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function updateStorePrices(storeId, prices) {
+    try {
+      await sbFetch(`stores?id=eq.${storeId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          pl_price: prices.plPrice,
+          night_price: prices.nightPrice,
+          day_price: prices.dayPrice,
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) => (s.id === storeId ? { ...s, ...prices } : s))
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
   async function submitLog(e) {
     e.preventDefault();
     if (!logForm.storeId) return;
@@ -302,6 +366,28 @@ export default function MeraConsignmentApp() {
     setLogForm(emptyLogForm);
     setStoreQuery("");
     setLogFormError(null);
+  }
+
+  function closeNewStoreModal() {
+    setShowNewStore(false);
+    setNewStoreForm({ name: "", day: "", firstSent: todayStr(), pl: "", night: "", dayp: "", plPrice: "", nightPrice: "", dayPrice: "" });
+  }
+
+  async function submitNewStore(e) {
+    e.preventDefault();
+    if (!newStoreForm.name.trim() || !newStoreForm.day) return;
+    const ok = await addStore({
+      name: newStoreForm.name.trim(),
+      day: parseInt(newStoreForm.day, 10),
+      firstSent: newStoreForm.firstSent,
+      pl: parseFloat(newStoreForm.pl) || 0,
+      night: parseFloat(newStoreForm.night) || 0,
+      dayp: parseFloat(newStoreForm.dayp) || 0,
+      plPrice: parseFloat(newStoreForm.plPrice) || 0,
+      nightPrice: parseFloat(newStoreForm.nightPrice) || 0,
+      dayPrice: parseFloat(newStoreForm.dayPrice) || 0,
+    });
+    if (ok) closeNewStoreModal();
   }
 
   const enriched = useMemo(() => {
@@ -458,6 +544,12 @@ export default function MeraConsignmentApp() {
                 <option key={k} value={k}>{monthLabel(k)}</option>
               ))}
             </select>
+            <button
+              onClick={() => setShowNewStore(true)}
+              style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+            >
+              <Plus size={16} /> New store
+            </button>
             <button
               onClick={() => setShowLog(true)}
               className="primarybtn"
@@ -726,6 +818,7 @@ export default function MeraConsignmentApp() {
                 onToggleAllTimePayments={() => setShowAllTimePayments(showAllTimePayments === s.id ? null : s.id)}
                 onDeleteVisit={deleteVisit}
                 onUpdateVisit={updateVisit}
+                onUpdatePrices={updateStorePrices}
               />
             ))}
           </div>
@@ -825,6 +918,74 @@ export default function MeraConsignmentApp() {
           </form>
         </div>
       )}
+
+      {showNewStore && (
+        <div onClick={closeNewStoreModal} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <form onClick={(e) => e.stopPropagation()} onSubmit={submitNewStore} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New store</h2>
+              <button type="button" onClick={closeNewStoreModal} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+
+            <Field label="Store name">
+              <input required autoFocus value={newStoreForm.name} onChange={(e) => setNewStoreForm({ ...newStoreForm, name: e.target.value })} style={inputStyle} placeholder="e.g. Sunrise Pharmacy" />
+            </Field>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <Field label="Visit day (1-31)" style={{ flex: 1 }}>
+                <input required type="number" min="1" max="31" value={newStoreForm.day} onChange={(e) => setNewStoreForm({ ...newStoreForm, day: e.target.value })} style={inputStyle} placeholder="e.g. 15" />
+              </Field>
+              <Field label="First sent date" style={{ flex: 1 }}>
+                <input type="date" value={newStoreForm.firstSent} onChange={(e) => setNewStoreForm({ ...newStoreForm, firstSent: e.target.value })} style={inputStyle} />
+              </Field>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Opening stock (units given)
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                  <input type="number" value={newStoreForm.pl} onChange={(e) => setNewStoreForm({ ...newStoreForm, pl: e.target.value })} style={{ ...inputStyle, padding: "8px 9px" }} placeholder="0" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                  <input type="number" value={newStoreForm.night} onChange={(e) => setNewStoreForm({ ...newStoreForm, night: e.target.value })} style={{ ...inputStyle, padding: "8px 9px" }} placeholder="0" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                  <input type="number" value={newStoreForm.dayp} onChange={(e) => setNewStoreForm({ ...newStoreForm, dayp: e.target.value })} style={{ ...inputStyle, padding: "8px 9px" }} placeholder="0" />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 4 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Price per unit $ (optional)
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                  <input type="number" step="0.01" value={newStoreForm.plPrice} onChange={(e) => setNewStoreForm({ ...newStoreForm, plPrice: e.target.value })} style={{ ...inputStyle, padding: "8px 9px" }} placeholder="0.00" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                  <input type="number" step="0.01" value={newStoreForm.nightPrice} onChange={(e) => setNewStoreForm({ ...newStoreForm, nightPrice: e.target.value })} style={{ ...inputStyle, padding: "8px 9px" }} placeholder="0.00" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                  <input type="number" step="0.01" value={newStoreForm.dayPrice} onChange={(e) => setNewStoreForm({ ...newStoreForm, dayPrice: e.target.value })} style={{ ...inputStyle, padding: "8px 9px" }} placeholder="0.00" />
+                </div>
+              </div>
+            </div>
+
+            <button type="submit" disabled={!newStoreForm.name.trim() || !newStoreForm.day} className="primarybtn" style={{ width: "100%", background: (newStoreForm.name.trim() && newStoreForm.day) ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: (newStoreForm.name.trim() && newStoreForm.day) ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700, marginTop: 16 }}>
+              Add store
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -850,10 +1011,12 @@ function StatCard({ icon: Icon, label, value, subtitle, onClick, active }) {
   );
 }
 
-function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments, onDeleteVisit, onUpdateVisit }) {
+function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments, onDeleteVisit, onUpdateVisit, onUpdatePrices }) {
   const [showHistory, setShowHistory] = useState(false);
   const [editingVisitId, setEditingVisitId] = useState(null);
   const [editForm, setEditForm] = useState(null);
+  const [editingPrices, setEditingPrices] = useState(false);
+  const [priceForm, setPriceForm] = useState(null);
   const visitedColor = store.visitedThisMonth ? C.emerald : C.amber;
   const visitedBg = store.visitedThisMonth ? C.emeraldBg : C.amberBg;
   return (
@@ -923,6 +1086,58 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
               </div>
             ))}
           </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!editingPrices) {
+                setPriceForm({
+                  plPrice: store.products[0].price || "",
+                  nightPrice: store.products[1].price || "",
+                  dayPrice: store.products[2].price || "",
+                });
+              }
+              setEditingPrices(!editingPrices);
+            }}
+            style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3, marginBottom: editingPrices ? 8 : 13, display: "block" }}
+          >
+            {editingPrices ? "Cancel" : store.hasPricing ? "Edit prices" : "Set prices"}
+          </button>
+
+          {editingPrices && (
+            <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 13 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner $</label>
+                  <input type="number" step="0.01" value={priceForm.plPrice} onChange={(e) => setPriceForm({ ...priceForm, plPrice: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Night $</label>
+                  <input type="number" step="0.01" value={priceForm.nightPrice} onChange={(e) => setPriceForm({ ...priceForm, nightPrice: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Day $</label>
+                  <input type="number" step="0.01" value={priceForm.dayPrice} onChange={(e) => setPriceForm({ ...priceForm, dayPrice: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const ok = await onUpdatePrices(store.id, {
+                    plPrice: parseFloat(priceForm.plPrice) || 0,
+                    nightPrice: parseFloat(priceForm.nightPrice) || 0,
+                    dayPrice: parseFloat(priceForm.dayPrice) || 0,
+                  });
+                  if (ok) setEditingPrices(false);
+                }}
+                style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+              >
+                Save prices
+              </button>
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 18, fontSize: 12, flexWrap: "wrap", marginBottom: store.latestNote ? 10 : 0, color: C.textDim }}>
             <button
