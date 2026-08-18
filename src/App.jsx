@@ -55,9 +55,12 @@ function fmtDate(d) {
 const emptyLogForm = {
   date: todayStr(),
   storeId: "",
-  product: "Panty Liner",
-  sold: "",
-  returned: "",
+  plSold: "",
+  plReturned: "",
+  nightSold: "",
+  nightReturned: "",
+  daySold: "",
+  dayReturned: "",
   paid: "",
   owed: "",
   notes: "",
@@ -99,6 +102,7 @@ export default function MeraConsignmentApp() {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showVisitedBreakdown, setShowVisitedBreakdown] = useState(false);
   const [showOwedBreakdown, setShowOwedBreakdown] = useState(false);
+  const [showRemainingBreakdown, setShowRemainingBreakdown] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [logForm, setLogForm] = useState(emptyLogForm);
   const [storeQuery, setStoreQuery] = useState("");
@@ -144,34 +148,36 @@ export default function MeraConsignmentApp() {
     })();
   }, []);
 
-  async function addVisit(v) {
+  async function addVisits(rows) {
     try {
-      const [inserted] = await sbFetch("visits", {
+      const inserted = await sbFetch("visits", {
         method: "POST",
-        body: JSON.stringify({
-          date: v.date,
-          store_name: v.store,
-          product: v.product,
-          sold: v.sold,
-          returned: v.returned,
-          paid: v.paid,
-          owed: v.owed,
-          notes: v.notes,
-        }),
+        body: JSON.stringify(
+          rows.map((v) => ({
+            date: v.date,
+            store_name: v.store,
+            product: v.product,
+            sold: v.sold,
+            returned: v.returned,
+            paid: v.paid,
+            owed: v.owed,
+            notes: v.notes,
+          }))
+        ),
       });
       setVisits((prev) => [
         ...(prev || []),
-        {
-          id: inserted.id,
-          date: inserted.date,
-          store: inserted.store_name,
-          product: inserted.product,
-          sold: Number(inserted.sold),
-          returned: Number(inserted.returned),
-          paid: Number(inserted.paid),
-          owed: Number(inserted.owed || 0),
-          notes: inserted.notes || "",
-        },
+        ...inserted.map((r) => ({
+          id: r.id,
+          date: r.date,
+          store: r.store_name,
+          product: r.product,
+          sold: Number(r.sold),
+          returned: Number(r.returned),
+          paid: Number(r.paid),
+          owed: Number(r.owed || 0),
+          notes: r.notes || "",
+        })),
       ]);
       setSaveError(false);
     } catch (e) {
@@ -184,17 +190,37 @@ export default function MeraConsignmentApp() {
     if (!logForm.storeId) return;
     const store = stores.find((s) => s.id === logForm.storeId);
     if (!store) return;
-    const v = {
-      date: logForm.date,
-      store: store.name,
-      product: logForm.product,
-      sold: parseFloat(logForm.sold) || 0,
-      returned: parseFloat(logForm.returned) || 0,
-      paid: parseFloat(logForm.paid) || 0,
-      owed: parseFloat(logForm.owed) || 0,
-      notes: logForm.notes,
-    };
-    await addVisit(v);
+
+    const productEntries = [
+      { key: "Panty Liner", sold: parseFloat(logForm.plSold) || 0, returned: parseFloat(logForm.plReturned) || 0 },
+      { key: "Night", sold: parseFloat(logForm.nightSold) || 0, returned: parseFloat(logForm.nightReturned) || 0 },
+      { key: "Day", sold: parseFloat(logForm.daySold) || 0, returned: parseFloat(logForm.dayReturned) || 0 },
+    ];
+    let rows = productEntries
+      .filter((p) => p.sold > 0 || p.returned > 0)
+      .map((p) => ({
+        date: logForm.date,
+        store: store.name,
+        product: p.key,
+        sold: p.sold,
+        returned: p.returned,
+        paid: 0,
+        owed: 0,
+        notes: "",
+      }));
+
+    // If nothing was sold/returned (a payment-only visit), still record one row so the payment isn't lost
+    if (rows.length === 0) {
+      rows = [{ date: logForm.date, store: store.name, product: "Panty Liner", sold: 0, returned: 0, paid: 0, owed: 0, notes: "" }];
+    }
+
+    // Attach payment + owed + notes to the last row only — totals are summed across rows either way,
+    // and "still owed" reads the MAX owed value on the most recent date, so it doesn't matter which row carries it.
+    rows[rows.length - 1].paid = parseFloat(logForm.paid) || 0;
+    rows[rows.length - 1].owed = parseFloat(logForm.owed) || 0;
+    rows[rows.length - 1].notes = logForm.notes;
+
+    await addVisits(rows);
     setLogForm({ ...emptyLogForm, storeId: logForm.storeId, date: logForm.date });
     setStoreQuery(store.name);
   }
@@ -207,6 +233,7 @@ export default function MeraConsignmentApp() {
     setShowBreakdown(false);
     setShowVisitedBreakdown(false);
     setShowOwedBreakdown(false);
+    setShowRemainingBreakdown(false);
   }
 
   function closeLogModal() {
@@ -235,8 +262,11 @@ export default function MeraConsignmentApp() {
       const visitedThisMonth = storeVisits.some((x) => isThisMonth(x.date));
       const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim());
       const latestNote = notedVisits.length ? notedVisits[notedVisits.length - 1].notes : "";
-      const sortedVisits = [...storeVisits].sort((a, b) => a.date.localeCompare(b.date));
-      const owedAmount = sortedVisits.length ? sortedVisits[sortedVisits.length - 1].owed : 0;
+      // "Still owed" reads the most recent visit DATE, then takes the max owed value across
+      // all rows logged that day — robust to which product row the payment happened to land on.
+      const owedAmount = lastVisitDate
+        ? Math.max(0, ...storeVisits.filter((x) => x.date === lastVisitDate).map((x) => x.owed || 0))
+        : 0;
       const paymentStatus = owedAmount > 0 ? "owes" : (storeVisits.some((x) => x.paid > 0) ? "paid" : null);
       return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, paymentStatus, owedAmount };
     });
@@ -287,6 +317,12 @@ export default function MeraConsignmentApp() {
     return enriched
       .filter((s) => s.owedAmount != null && s.owedAmount > 0)
       .sort((a, b) => b.owedAmount - a.owedAmount);
+  }, [enriched]);
+
+  const remainingBreakdown = useMemo(() => {
+    return enriched
+      .filter((s) => s.totalRemaining > 0)
+      .sort((a, b) => b.totalRemaining - a.totalRemaining);
   }, [enriched]);
 
   const storeMatches = useMemo(() => {
@@ -354,7 +390,13 @@ export default function MeraConsignmentApp() {
 
         {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, margin: "28px 0" }}>
-          <StatCard icon={Package} label="Units remaining" value={stats.totalRemaining.toLocaleString()} />
+          <StatCard
+            icon={Package}
+            label="Units remaining"
+            value={stats.totalRemaining.toLocaleString()}
+            onClick={remainingBreakdown.length ? () => setShowRemainingBreakdown(!showRemainingBreakdown) : undefined}
+            active={showRemainingBreakdown}
+          />
           <StatCard
             icon={Wallet}
             label={`Collected — ${monthLabel(selectedMonth)}`}
@@ -459,6 +501,38 @@ export default function MeraConsignmentApp() {
                   <span style={{ display: "flex", gap: 12, alignItems: "baseline", flexShrink: 0, marginLeft: 12 }}>
                     <span style={{ fontSize: 11, color: C.textFaint }}>collected ${s.totalCollected.toFixed(2)}</span>
                     <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.owedAmount.toFixed(2)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showRemainingBreakdown && (
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 22 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+              Units remaining — by store
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {remainingBreakdown.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => jumpToStore(s.name, s.id)}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    background: "none", border: "none", borderTop: `1px solid ${C.border}`,
+                    padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg2}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "none"}
+                >
+                  <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                  <span style={{ display: "flex", gap: 10, alignItems: "baseline", flexShrink: 0, marginLeft: 12, fontSize: 11, color: C.textFaint }}>
+                    {s.products.map((p) => (
+                      <span key={p.key}>{p.label} {p.remaining}</span>
+                    ))}
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold }}>{s.totalRemaining}</span>
                   </span>
                 </button>
               ))}
@@ -583,33 +657,26 @@ export default function MeraConsignmentApp() {
               </div>
             </Field>
 
-            <Field label="Product">
-              <div style={{ display: "flex", gap: 6 }}>
-                {PRODUCTS.map((p) => (
-                  <button
-                    type="button"
-                    key={p.key}
-                    onClick={() => setLogForm({ ...logForm, product: p.key })}
-                    style={{
-                      flex: 1, padding: "10px 4px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                      border: logForm.product === p.key ? `1.5px solid ${C.gold}` : `1.5px solid ${C.border}`,
-                      background: logForm.product === p.key ? `${C.gold}18` : "transparent",
-                      color: logForm.product === p.key ? C.goldBright : C.text,
-                    }}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Products \u2014 sold / returned
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
+                <span></span>
+                <span style={{ fontSize: 10, color: C.textFaint, textAlign: "center" }}>Sold</span>
+                <span style={{ fontSize: 10, color: C.textFaint, textAlign: "center" }}>Returned</span>
               </div>
-            </Field>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <Field label="Units sold" style={{ flex: 1 }}>
-                <input type="number" value={logForm.sold} onChange={(e) => setLogForm({ ...logForm, sold: e.target.value })} style={inputStyle} placeholder="0" />
-              </Field>
-              <Field label="Units returned" style={{ flex: 1 }}>
-                <input type="number" value={logForm.returned} onChange={(e) => setLogForm({ ...logForm, returned: e.target.value })} style={inputStyle} placeholder="0" />
-              </Field>
+              {[
+                { label: "Panty Liner", soldKey: "plSold", retKey: "plReturned" },
+                { label: "Night (\u1799\u1794\u17cb)", soldKey: "nightSold", retKey: "nightReturned" },
+                { label: "Day (\u1790\u17d2\u1784\u17c3)", soldKey: "daySold", retKey: "dayReturned" },
+              ].map((p) => (
+                <div key={p.soldKey} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 13, color: C.text }}>{p.label}</span>
+                  <input type="number" value={logForm[p.soldKey]} onChange={(e) => setLogForm({ ...logForm, [p.soldKey]: e.target.value })} style={{ ...inputStyle, padding: "7px 8px", textAlign: "center" }} placeholder="0" />
+                  <input type="number" value={logForm[p.retKey]} onChange={(e) => setLogForm({ ...logForm, [p.retKey]: e.target.value })} style={{ ...inputStyle, padding: "7px 8px", textAlign: "center" }} placeholder="0" />
+                </div>
+              ))}
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>
