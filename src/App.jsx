@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Wallet, Calendar, ClipboardList, Sparkles } from "lucide-react";
+import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Wallet, Calendar, ClipboardList, Sparkles, Trash2 } from "lucide-react";
 
 const SUPABASE_URL = "https://idkjsxrqaklyhidptaon.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Y-yZsch-GC8QNXYY8ja-dA_MaBE4El0";
@@ -106,6 +106,7 @@ export default function MeraConsignmentApp() {
   const [showRemainingBreakdown, setShowRemainingBreakdown] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [logForm, setLogForm] = useState(emptyLogForm);
+  const [logFormError, setLogFormError] = useState(null);
   const [storeQuery, setStoreQuery] = useState("");
   const [showStoreList, setShowStoreList] = useState(false);
   const storeInputRef = useRef(null);
@@ -186,6 +187,38 @@ export default function MeraConsignmentApp() {
     }
   }
 
+  async function deleteVisit(id) {
+    try {
+      await sbFetch(`visits?id=eq.${id}`, { method: "DELETE" });
+      setVisits((prev) => (prev || []).filter((v) => v.id !== id));
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function updateVisit(id, changes) {
+    try {
+      await sbFetch(`visits?id=eq.${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          date: changes.date,
+          product: changes.product,
+          sold: changes.sold,
+          returned: changes.returned,
+          paid: changes.paid,
+          owed: changes.owed,
+        }),
+      });
+      setVisits((prev) =>
+        (prev || []).map((v) => (v.id === id ? { ...v, ...changes } : v))
+      );
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
   async function submitLog(e) {
     e.preventDefault();
     if (!logForm.storeId) return;
@@ -197,6 +230,21 @@ export default function MeraConsignmentApp() {
       { key: "Night", sold: parseFloat(logForm.nightSold) || 0, returned: parseFloat(logForm.nightReturned) || 0 },
       { key: "Day", sold: parseFloat(logForm.daySold) || 0, returned: parseFloat(logForm.dayReturned) || 0 },
     ];
+
+    // Block entries that would take any product below zero at this store
+    const enrichedStore = enriched.find((s) => s.id === store.id);
+    if (enrichedStore) {
+      for (const p of productEntries) {
+        const currentRemaining = enrichedStore.products.find((x) => x.key === p.key)?.remaining ?? 0;
+        const requested = p.sold + p.returned;
+        if (requested > currentRemaining) {
+          setLogFormError(`${p.key}: only ${currentRemaining} left at this store, but you entered ${requested} (sold + returned).`);
+          return;
+        }
+      }
+    }
+    setLogFormError(null);
+
     let rows = productEntries
       .filter((p) => p.sold > 0 || p.returned > 0)
       .map((p) => ({
@@ -241,6 +289,7 @@ export default function MeraConsignmentApp() {
     setShowLog(false);
     setLogForm(emptyLogForm);
     setStoreQuery("");
+    setLogFormError(null);
   }
 
   const enriched = useMemo(() => {
@@ -271,7 +320,8 @@ export default function MeraConsignmentApp() {
         ? Math.max(0, ...monthVisits.filter((x) => x.date === lastVisitDateInMonth).map((x) => x.owed || 0))
         : 0;
       const paymentStatus = owedAmount > 0 ? "owes" : (monthVisits.some((x) => x.paid > 0) ? "paid" : null);
-      return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount };
+      const fullHistory = [...storeVisits].sort((a, b) => b.date.localeCompare(a.date));
+      return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount, fullHistory };
     });
   }, [visits, selectedMonth]);
 
@@ -303,6 +353,22 @@ export default function MeraConsignmentApp() {
     const visitedCount = enriched.filter((s) => s.visitedThisMonth).length;
     return { totalRemaining, totalCollected, totalOwed, visitedCount, total: enriched.length };
   }, [enriched]);
+
+  const salesSummary = useMemo(() => {
+    const v = visits || [];
+    const monthVisits = selectedMonth ? v.filter((x) => monthKey(x.date) === selectedMonth) : v;
+    const byProduct = {};
+    PRODUCTS.forEach((p) => { byProduct[p.key] = { label: p.label, units: 0 }; });
+    let totalUnits = 0;
+    monthVisits.forEach((x) => {
+      if (byProduct[x.product]) {
+        byProduct[x.product].units += x.sold;
+        totalUnits += x.sold;
+      }
+    });
+    const totalPaid = monthVisits.reduce((a, x) => a + x.paid, 0);
+    return { byProduct: PRODUCTS.map((p) => byProduct[p.key]), totalUnits, totalPaid };
+  }, [visits, selectedMonth]);
 
   const monthlyBreakdown = useMemo(() => {
     return enriched
@@ -543,6 +609,29 @@ export default function MeraConsignmentApp() {
           </div>
         )}
 
+        {salesSummary.totalUnits > 0 && (
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", marginBottom: 22 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+              Sales \u2014 {monthLabel(selectedMonth)}
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 26, fontWeight: 600, color: C.gold }}>{salesSummary.totalUnits.toLocaleString()}</span>
+              <span style={{ fontSize: 13, color: C.textDim }}>units sold</span>
+              <span style={{ color: C.textFaint }}>\u00b7</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: C.emerald }}>${salesSummary.totalPaid.toFixed(2)}</span>
+              <span style={{ fontSize: 13, color: C.textDim }}>collected</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9 }}>
+              {salesSummary.byProduct.map((p) => (
+                <div key={p.label} style={{ background: C.bg2, borderRadius: 9, padding: "9px 11px", border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600 }}>{p.label}</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, marginTop: 3, color: C.text }}>{p.units}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Day strip */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>
@@ -617,6 +706,8 @@ export default function MeraConsignmentApp() {
                 onTogglePayments={() => setShowPayments(showPayments === s.id ? null : s.id)}
                 showAllTimePayments={showAllTimePayments === s.id}
                 onToggleAllTimePayments={() => setShowAllTimePayments(showAllTimePayments === s.id ? null : s.id)}
+                onDeleteVisit={deleteVisit}
+                onUpdateVisit={updateVisit}
               />
             ))}
           </div>
@@ -701,6 +792,12 @@ export default function MeraConsignmentApp() {
               <textarea value={logForm.notes} onChange={(e) => setLogForm({ ...logForm, notes: e.target.value })} style={{ ...inputStyle, minHeight: 55 }} />
             </Field>
 
+            {logFormError && (
+              <div style={{ background: C.roseBg, color: C.rose, padding: "9px 12px", borderRadius: 8, fontSize: 12, marginBottom: 12, border: `1px solid ${C.rose}30` }}>
+                {logFormError}
+              </div>
+            )}
+
             <button type="submit" disabled={!logForm.storeId} className="primarybtn" style={{ width: "100%", background: logForm.storeId ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: logForm.storeId ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700, marginTop: 6 }}>
               Save visit
             </button>
@@ -734,7 +831,10 @@ function StatCard({ icon: Icon, label, value, onClick, active }) {
   );
 }
 
-function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments }) {
+function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments, onDeleteVisit, onUpdateVisit }) {
+  const [showHistory, setShowHistory] = useState(false);
+  const [editingVisitId, setEditingVisitId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
   const visitedColor = store.visitedThisMonth ? C.emerald : C.amber;
   const visitedBg = store.visitedThisMonth ? C.emeraldBg : C.amberBg;
   return (
@@ -851,9 +951,112 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
 
 
           {store.latestNote && (
-            <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25` }}>
+            <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
               <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
               {store.latestNote}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setShowHistory(!showHistory); }}
+            style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3 }}
+          >
+            {showHistory ? "Hide" : "Edit"} all logged visits ({store.fullHistory.length})
+          </button>
+
+          {showHistory && (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              {store.fullHistory.map((v) => {
+                const isEditing = editingVisitId === v.id;
+                if (isEditing) {
+                  return (
+                    <div key={v.id} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: "10px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
+                        <input type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} style={{ ...miniInputStyle }} />
+                        <select value={editForm.product} onChange={(e) => setEditForm({ ...editForm, product: e.target.value })} style={{ ...miniInputStyle }}>
+                          {PRODUCTS.map((p) => <option key={p.key} value={p.key}>{p.key}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Sold</label>
+                          <input type="number" value={editForm.sold} onChange={(e) => setEditForm({ ...editForm, sold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Returned</label>
+                          <input type="number" value={editForm.returned} onChange={(e) => setEditForm({ ...editForm, returned: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Paid $</label>
+                          <input type="number" step="0.01" value={editForm.paid} onChange={(e) => setEditForm({ ...editForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Owed $</label>
+                          <input type="number" step="0.01" value={editForm.owed} onChange={(e) => setEditForm({ ...editForm, owed: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdateVisit(v.id, {
+                              date: editForm.date,
+                              product: editForm.product,
+                              sold: parseFloat(editForm.sold) || 0,
+                              returned: parseFloat(editForm.returned) || 0,
+                              paid: parseFloat(editForm.paid) || 0,
+                              owed: parseFloat(editForm.owed) || 0,
+                            });
+                            setEditingVisitId(null);
+                          }}
+                          style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditingVisitId(null); }}
+                          style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={v.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div
+                      style={{ fontSize: 11, color: C.textDim, minWidth: 0, cursor: "pointer", flex: 1 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditForm({ date: v.date, product: v.product, sold: v.sold, returned: v.returned, paid: v.paid, owed: v.owed });
+                        setEditingVisitId(v.id);
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: C.text }}>{fmtDate(v.date)} · {v.product}</div>
+                      <div style={{ marginTop: 2 }}>
+                        {v.sold > 0 && <span>sold {v.sold} </span>}
+                        {v.returned > 0 && <span>returned {v.returned} </span>}
+                        {v.paid > 0 && <span style={{ color: C.emerald }}>paid ${v.paid.toFixed(2)} </span>}
+                        {v.owed > 0 && <span style={{ color: C.rose }}>owes ${v.owed.toFixed(2)} </span>}
+                        {v.sold === 0 && v.returned === 0 && v.paid === 0 && v.owed === 0 && <span style={{ color: C.textFaint }}>(tap to edit)</span>}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete this logged visit? This can't be undone.")) onDeleteVisit(v.id); }}
+                      style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -878,6 +1081,16 @@ const inputStyle = {
   padding: "10px 12px",
   fontSize: 14,
   background: C.bg2,
+  color: C.text,
+  outline: "none",
+};
+
+const miniInputStyle = {
+  border: `1px solid ${C.border}`,
+  borderRadius: 6,
+  padding: "6px 8px",
+  fontSize: 12,
+  background: C.surface,
   color: C.text,
   outline: "none",
 };
