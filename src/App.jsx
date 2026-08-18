@@ -99,6 +99,7 @@ export default function MeraConsignmentApp() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [expanded, setExpanded] = useState(null);
   const [showPayments, setShowPayments] = useState(null);
+  const [showAllTimePayments, setShowAllTimePayments] = useState(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showVisitedBreakdown, setShowVisitedBreakdown] = useState(false);
   const [showOwedBreakdown, setShowOwedBreakdown] = useState(false);
@@ -258,17 +259,19 @@ export default function MeraConsignmentApp() {
       const totalCollected = monthVisits.reduce((a, x) => a + x.paid, 0);
       const allTimeCollected = storeVisits.reduce((a, x) => a + x.paid, 0);
       const paymentHistory = monthVisits.filter((x) => x.paid > 0).sort((a, b) => a.date.localeCompare(b.date));
+      const allTimePaymentHistory = storeVisits.filter((x) => x.paid > 0).sort((a, b) => a.date.localeCompare(b.date));
       const lastVisitDate = storeVisits.length ? storeVisits.map((x) => x.date).sort().slice(-1)[0] : null;
       const visitedThisMonth = storeVisits.some((x) => isThisMonth(x.date));
       const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim());
       const latestNote = notedVisits.length ? notedVisits[notedVisits.length - 1].notes : "";
-      // "Still owed" reads the most recent visit DATE, then takes the max owed value across
-      // all rows logged that day — robust to which product row the payment happened to land on.
-      const owedAmount = lastVisitDate
-        ? Math.max(0, ...storeVisits.filter((x) => x.date === lastVisitDate).map((x) => x.owed || 0))
+      // Paid/Owes status resets each month \u2014 based only on visits within the selected month,
+      // not the store's all-time history. No visit logged this month = no badge shown.
+      const lastVisitDateInMonth = monthVisits.length ? monthVisits.map((x) => x.date).sort().slice(-1)[0] : null;
+      const owedAmount = lastVisitDateInMonth
+        ? Math.max(0, ...monthVisits.filter((x) => x.date === lastVisitDateInMonth).map((x) => x.owed || 0))
         : 0;
-      const paymentStatus = owedAmount > 0 ? "owes" : (storeVisits.some((x) => x.paid > 0) ? "paid" : null);
-      return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, paymentStatus, owedAmount };
+      const paymentStatus = owedAmount > 0 ? "owes" : (monthVisits.some((x) => x.paid > 0) ? "paid" : null);
+      return { ...s, products, totalRemaining, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount };
     });
   }, [visits, selectedMonth]);
 
@@ -612,6 +615,8 @@ export default function MeraConsignmentApp() {
                 onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
                 showPayments={showPayments === s.id}
                 onTogglePayments={() => setShowPayments(showPayments === s.id ? null : s.id)}
+                showAllTimePayments={showAllTimePayments === s.id}
+                onToggleAllTimePayments={() => setShowAllTimePayments(showAllTimePayments === s.id ? null : s.id)}
               />
             ))}
           </div>
@@ -729,7 +734,7 @@ function StatCard({ icon: Icon, label, value, onClick, active }) {
   );
 }
 
-function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments }) {
+function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments }) {
   const visitedColor = store.visitedThisMonth ? C.emerald : C.amber;
   const visitedBg = store.visitedThisMonth ? C.emeraldBg : C.amberBg;
   return (
@@ -803,7 +808,16 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
             >
               Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${store.totalCollected.toFixed(2)}</b>
             </button>
-            <span style={{ color: C.textFaint }}>All-time: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>${store.allTimeCollected.toFixed(2)}</b></span>
+            <span style={{ color: C.textFaint }}>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onToggleAllTimePayments(); }}
+                style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 12, cursor: store.allTimePaymentHistory.length ? "pointer" : "default", textDecoration: store.allTimePaymentHistory.length ? "underline" : "none", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3 }}
+                disabled={!store.allTimePaymentHistory.length}
+              >
+                All-time: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>${store.allTimeCollected.toFixed(2)}</b>
+              </button>
+            </span>
             {store.owedAmount > 0 && (
               <span style={{ color: C.rose }}>Still owes: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.rose }}>${store.owedAmount.toFixed(2)}</b></span>
             )}
@@ -812,8 +826,8 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
           </div>
 
           {showPayments && store.paymentHistory.length > 0 && (
-            <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 11px", marginBottom: store.latestNote ? 10 : 0 }}>
-              <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Payment history</div>
+            <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 11px", marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>This month's payments</div>
               {store.paymentHistory.map((v) => (
                 <div key={v.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderTop: `1px solid ${C.border}` }}>
                   <span style={{ color: C.textDim }}>{fmtDate(v.date)} · {v.product}</span>
@@ -822,6 +836,19 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
               ))}
             </div>
           )}
+
+          {showAllTimePayments && store.allTimePaymentHistory.length > 0 && (
+            <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 11px", marginBottom: store.latestNote ? 10 : 0 }}>
+              <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>All-time payment history</div>
+              {store.allTimePaymentHistory.map((v) => (
+                <div key={v.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderTop: `1px solid ${C.border}` }}>
+                  <span style={{ color: C.textDim }}>{fmtDate(v.date)} · {v.product}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim, fontWeight: 600 }}>${v.paid.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
 
           {store.latestNote && (
             <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25` }}>
