@@ -771,7 +771,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments })
               <div key={p.key} style={{ background: C.bg2, borderRadius: 9, padding: "9px 11px", border: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 10, color: C.textDim, fontWeight: 600, marginBottom: 6 }}>{p.label}</div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.textFaint, marginBottom: 2 }}>
-                  <span>\u178a\u17c1\u1798\u1782\u17d2\u179a\u17b6 (opening)</span>
+                  <span>ដើមគ្រា (opening)</span>
                   <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>{p.init}</span>
                 </div>
                 {p.sold > 0 && (
