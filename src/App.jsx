@@ -1598,6 +1598,10 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
             {showHistory ? "Hide" : "Edit"} all logged visits ({store.fullHistory.length})
           </button>
 
+          <div style={{ marginTop: 8, padding: 8, background: "#2a1a00", border: "1px solid orange", borderRadius: 6, fontSize: 10, color: "orange", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
+            DEBUG: {JSON.stringify(store.fullHistory.map((v) => ({ date: v.date, notes: v.notes })))}
+          </div>
+
           {showHistory && (
             <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
               {store.fullHistory.map((v) => {
