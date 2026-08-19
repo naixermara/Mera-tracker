@@ -154,7 +154,6 @@ export default function MeraConsignmentApp() {
   const [showAllTimePayments, setShowAllTimePayments] = useState(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showVisitedBreakdown, setShowVisitedBreakdown] = useState(false);
-  const [showOwedBreakdown, setShowOwedBreakdown] = useState(false);
   const [showRemainingBreakdown, setShowRemainingBreakdown] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [showNewStore, setShowNewStore] = useState(false);
@@ -607,13 +606,6 @@ export default function MeraConsignmentApp() {
       const visitedThisMonth = storeVisits.some((x) => isThisMonth(x.date));
       const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim()).sort((a, b) => a.date.localeCompare(b.date));
       const latestNote = notedVisits.length ? notedVisits[notedVisits.length - 1].notes : "";
-      // Paid/Owes status resets each month — based only on visits within the selected month,
-      // not the store's all-time history. No visit logged this month = no badge shown.
-      const lastVisitDateInMonth = monthVisits.length ? monthVisits.map((x) => x.date).sort().slice(-1)[0] : null;
-      const owedAmount = lastVisitDateInMonth
-        ? Math.max(0, ...monthVisits.filter((x) => x.date === lastVisitDateInMonth).map((x) => x.owed || 0))
-        : 0;
-      const paymentStatus = owedAmount > 0 ? "owes" : (monthVisits.some((x) => x.paid > 0) ? "paid" : null);
       // Group by date using the ORIGINAL fetch order (created_at.asc), so within the same
       // date, later-logged rows stay later in the array — needed to correctly pick the
       // truly most recent note/invoice when multiple visits happen to share a date.
@@ -635,7 +627,7 @@ export default function MeraConsignmentApp() {
           const invoiceNumber = invoicedRows.length ? invoicedRows[invoicedRows.length - 1].invoiceNumber : "";
           return { date, ids: rowsForDate.map((v) => v.id), rows: rowsForDate, products, paid, owed, notes, invoiceNumber };
         });
-      return { ...s, products, totalRemaining, totalValue, hasPricing, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount, fullHistory };
+      return { ...s, products, totalRemaining, totalValue, hasPricing, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, fullHistory };
     });
   }, [visits, selectedMonth]);
 
@@ -663,10 +655,9 @@ export default function MeraConsignmentApp() {
   const stats = useMemo(() => {
     const totalRemaining = enriched.reduce((a, s) => a + s.totalRemaining, 0);
     const totalCollected = enriched.reduce((a, s) => a + s.totalCollected, 0);
-    const totalOwed = enriched.reduce((a, s) => a + (s.owedAmount || 0), 0);
     const totalStockValue = enriched.reduce((a, s) => a + s.totalValue, 0);
     const visitedCount = enriched.filter((s) => s.visitedThisMonth).length;
-    return { totalRemaining, totalCollected, totalOwed, totalStockValue, visitedCount, total: enriched.length };
+    return { totalRemaining, totalCollected, totalStockValue, visitedCount, total: enriched.length };
   }, [enriched]);
 
   const salesSummary = useMemo(() => {
@@ -695,12 +686,6 @@ export default function MeraConsignmentApp() {
     return enriched
       .filter((s) => s.visitedThisMonth)
       .sort((a, b) => (b.lastVisitDate || "").localeCompare(a.lastVisitDate || ""));
-  }, [enriched]);
-
-  const owedBreakdown = useMemo(() => {
-    return enriched
-      .filter((s) => s.owedAmount != null && s.owedAmount > 0)
-      .sort((a, b) => b.owedAmount - a.owedAmount);
   }, [enriched]);
 
   const remainingBreakdown = useMemo(() => {
@@ -810,7 +795,7 @@ export default function MeraConsignmentApp() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, margin: "28px 0" }}>
           <StatCard
             icon={Package}
-            label="Units remaining"
+            label="Selling (ស្តុកកំពុងដាក់លក់)"
             value={stats.totalRemaining.toLocaleString()}
             subtitle={stats.totalStockValue > 0 ? "≈ $" + stats.totalStockValue.toFixed(2) : undefined}
             onClick={remainingBreakdown.length ? () => setShowRemainingBreakdown(!showRemainingBreakdown) : undefined}
@@ -829,13 +814,6 @@ export default function MeraConsignmentApp() {
             value={`${stats.visitedCount} / ${stats.total}`}
             onClick={visitedBreakdown.length ? () => setShowVisitedBreakdown(!showVisitedBreakdown) : undefined}
             active={showVisitedBreakdown}
-          />
-          <StatCard
-            icon={AlertCircle}
-            label="Still owed"
-            value={"$" + stats.totalOwed.toFixed(2)}
-            onClick={owedBreakdown.length ? () => setShowOwedBreakdown(!showOwedBreakdown) : undefined}
-            active={showOwedBreakdown}
           />
         </div>
 
@@ -897,40 +875,10 @@ export default function MeraConsignmentApp() {
           </div>
         )}
 
-        {showOwedBreakdown && (
-          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 22 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-              Still owed — by store
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {owedBreakdown.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => jumpToStore(s.name, s.id)}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    background: "none", border: "none", borderTop: `1px solid ${C.border}`,
-                    padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg2}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "none"}
-                >
-                  <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                  <span style={{ display: "flex", gap: 12, alignItems: "baseline", flexShrink: 0, marginLeft: 12 }}>
-                    <span style={{ fontSize: 11, color: C.textFaint }}>collected ${s.totalCollected.toFixed(2)}</span>
-                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.owedAmount.toFixed(2)}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {showRemainingBreakdown && (
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 22 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-              Units remaining — by store
+              Selling (ស្តុកកំពុងដាក់លក់) — by store
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               {remainingBreakdown.map((s) => (
@@ -1127,14 +1075,9 @@ export default function MeraConsignmentApp() {
               ))}
             </div>
 
-            <div style={{ display: "flex", gap: 10 }}>
-              <Field label="ទូទាត់ (Paid $)" style={{ flex: 1 }}>
-                <input type="number" step="0.01" value={logForm.paid} onChange={(e) => setLogForm({ ...logForm, paid: e.target.value })} style={inputStyle} placeholder="0.00" />
-              </Field>
-              <Field label="នៅខ្វះ (Still owe $)" style={{ flex: 1 }}>
-                <input type="number" step="0.01" value={logForm.owed} onChange={(e) => setLogForm({ ...logForm, owed: e.target.value })} style={inputStyle} placeholder="0.00" />
-              </Field>
-            </div>
+            <Field label="ទូទាត់ (Paid $)">
+              <input type="number" step="0.01" value={logForm.paid} onChange={(e) => setLogForm({ ...logForm, paid: e.target.value })} style={inputStyle} placeholder="0.00" />
+            </Field>
 
             <Field label="Visit date">
               <input type="date" value={logForm.date} onChange={(e) => setLogForm({ ...logForm, date: e.target.value })} style={inputStyle} />
@@ -1464,17 +1407,6 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          {store.paymentStatus && (
-            <span style={{
-              fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 999,
-              background: store.paymentStatus === "paid" ? C.emeraldBg : C.roseBg,
-              color: store.paymentStatus === "paid" ? C.emerald : C.rose,
-              textTransform: "uppercase", letterSpacing: "0.04em",
-              border: `1px solid ${store.paymentStatus === "paid" ? C.emerald : C.rose}30`,
-            }}>
-              {store.paymentStatus === "paid" ? "Paid" : "Owes"}
-            </span>
-          )}
           <span style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 999, background: visitedBg, color: visitedColor, textTransform: "uppercase", letterSpacing: "0.04em", border: `1px solid ${visitedColor}30` }}>
             {store.visitedThisMonth ? "Visited" : "Not yet"}
           </span>
@@ -1595,15 +1527,9 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
 
           {editingDetails && (
             <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 13 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-                <div>
-                  <label style={{ fontSize: 9, color: C.textFaint }}>Visit day (1-31)</label>
-                  <input type="number" min="1" max="31" value={detailsForm.day} onChange={(e) => setDetailsForm({ ...detailsForm, day: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 9, color: C.textFaint }}>First sent date</label>
-                  <input type="date" value={detailsForm.firstSent} onChange={(e) => setDetailsForm({ ...detailsForm, firstSent: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
-                </div>
+              <div style={{ marginBottom: 8 }}>
+                <label style={{ fontSize: 9, color: C.textFaint }}>First sent date</label>
+                <input type="date" value={detailsForm.firstSent} onChange={(e) => setDetailsForm({ ...detailsForm, firstSent: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
               </div>
               <div style={{ fontSize: 9, color: C.textFaint, marginBottom: 4 }}>Opening stock (ដើមគ្រា)</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
@@ -1659,9 +1585,6 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                 All-time: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>${store.allTimeCollected.toFixed(2)}</b>
               </button>
             </span>
-            {store.owedAmount > 0 && (
-              <span style={{ color: C.rose }}>Still owes: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.rose }}>${store.owedAmount.toFixed(2)}</b></span>
-            )}
             {store.hasPricing && (
               <span style={{ color: C.gold }}>Stock value: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold }}>${store.totalValue.toFixed(2)}</b></span>
             )}
@@ -1694,23 +1617,12 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
           )}
 
 
-          {store.latestNote && (() => {
-            const noteIsAboutOwing = store.latestNote.includes("ខ្វះ") || store.latestNote.includes("owe");
-            const isStale = noteIsAboutOwing && store.owedAmount === 0;
-            if (isStale) {
-              return (
-                <div style={{ fontSize: 11, color: C.textFaint, fontStyle: "italic", padding: "0 2px", marginBottom: 10 }}>
-                  Note from last visit: "{store.latestNote}" — resolved, no longer owed.
-                </div>
-              );
-            }
-            return (
-              <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
-                <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
-                {store.latestNote}
-              </div>
-            );
-          })()}
+          {store.latestNote && (
+            <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
+              <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
+              {store.latestNote}
+            </div>
+          )}
 
           <button
             type="button"
