@@ -583,9 +583,11 @@ export default function MeraConsignmentApp() {
         ? Math.max(0, ...monthVisits.filter((x) => x.date === lastVisitDateInMonth).map((x) => x.owed || 0))
         : 0;
       const paymentStatus = owedAmount > 0 ? "owes" : (monthVisits.some((x) => x.paid > 0) ? "paid" : null);
-      const rawHistory = [...storeVisits].sort((a, b) => b.date.localeCompare(a.date));
+      // Group by date using the ORIGINAL fetch order (created_at.asc), so within the same
+      // date, later-logged rows stay later in the array — needed to correctly pick the
+      // truly most recent note/invoice when multiple visits happen to share a date.
       const groupedByDate = {};
-      rawHistory.forEach((v) => {
+      storeVisits.forEach((v) => {
         if (!groupedByDate[v.date]) groupedByDate[v.date] = [];
         groupedByDate[v.date].push(v);
       });
@@ -596,8 +598,10 @@ export default function MeraConsignmentApp() {
           const products = rowsForDate.filter((v) => v.sold > 0 || v.returned > 0);
           const paid = rowsForDate.reduce((a, v) => a + v.paid, 0);
           const owed = Math.max(0, ...rowsForDate.map((v) => v.owed || 0));
-          const notes = rowsForDate.map((v) => v.notes).find((n) => n && n.trim()) || "";
-          const invoiceNumber = rowsForDate.map((v) => v.invoiceNumber).find((n) => n && n.trim()) || "";
+          const notedRows = rowsForDate.filter((v) => v.notes && v.notes.trim());
+          const notes = notedRows.length ? notedRows[notedRows.length - 1].notes : "";
+          const invoicedRows = rowsForDate.filter((v) => v.invoiceNumber && v.invoiceNumber.trim());
+          const invoiceNumber = invoicedRows.length ? invoicedRows[invoicedRows.length - 1].invoiceNumber : "";
           return { date, ids: rowsForDate.map((v) => v.id), rows: rowsForDate, products, paid, owed, notes, invoiceNumber };
         });
       return { ...s, products, totalRemaining, totalValue, hasPricing, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount, fullHistory };
