@@ -371,6 +371,7 @@ export default function MeraConsignmentApp() {
           paid: changes.paid,
           owed: changes.owed,
           notes: changes.notes,
+          invoice_number: changes.invoiceNumber || null,
           updated_by: authUser?.email || "unknown",
           updated_at: new Date().toISOString(),
         }),
@@ -582,7 +583,23 @@ export default function MeraConsignmentApp() {
         ? Math.max(0, ...monthVisits.filter((x) => x.date === lastVisitDateInMonth).map((x) => x.owed || 0))
         : 0;
       const paymentStatus = owedAmount > 0 ? "owes" : (monthVisits.some((x) => x.paid > 0) ? "paid" : null);
-      const fullHistory = [...storeVisits].sort((a, b) => b.date.localeCompare(a.date));
+      const rawHistory = [...storeVisits].sort((a, b) => b.date.localeCompare(a.date));
+      const groupedByDate = {};
+      rawHistory.forEach((v) => {
+        if (!groupedByDate[v.date]) groupedByDate[v.date] = [];
+        groupedByDate[v.date].push(v);
+      });
+      const fullHistory = Object.keys(groupedByDate)
+        .sort((a, b) => b.localeCompare(a))
+        .map((date) => {
+          const rowsForDate = groupedByDate[date];
+          const products = rowsForDate.filter((v) => v.sold > 0 || v.returned > 0);
+          const paid = rowsForDate.reduce((a, v) => a + v.paid, 0);
+          const owed = Math.max(0, ...rowsForDate.map((v) => v.owed || 0));
+          const notes = rowsForDate.map((v) => v.notes).find((n) => n && n.trim()) || "";
+          const invoiceNumber = rowsForDate.map((v) => v.invoiceNumber).find((n) => n && n.trim()) || "";
+          return { date, ids: rowsForDate.map((v) => v.id), rows: rowsForDate, products, paid, owed, notes, invoiceNumber };
+        });
       return { ...s, products, totalRemaining, totalValue, hasPricing, totalCollected, allTimeCollected, lastVisitDate, visitedThisMonth, latestNote, visitCount: storeVisits.length, paymentHistory, allTimePaymentHistory, paymentStatus, owedAmount, fullHistory };
     });
   }, [visits, selectedMonth]);
@@ -1598,33 +1615,30 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
             {showHistory ? "Hide" : "Edit"} all logged visits ({store.fullHistory.length})
           </button>
 
-          <div style={{ marginTop: 8, padding: 8, background: "#2a1a00", border: "1px solid orange", borderRadius: 6, fontSize: 10, color: "orange", fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
-            DEBUG: {JSON.stringify(store.fullHistory.map((v) => ({ date: v.date, notes: v.notes })))}
-          </div>
-
           {showHistory && (
             <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-              {store.fullHistory.map((v) => {
-                const isEditing = editingVisitId === v.id;
+              {store.fullHistory.map((visit) => {
+                const isEditing = editingVisitId === visit.date;
                 if (isEditing) {
                   return (
-                    <div key={v.id} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: "10px" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
-                        <input type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} style={{ ...miniInputStyle }} />
-                        <select value={editForm.product} onChange={(e) => setEditForm({ ...editForm, product: e.target.value })} style={{ ...miniInputStyle }}>
-                          {PRODUCTS.map((p) => <option key={p.key} value={p.key}>{p.key}</option>)}
-                        </select>
+                    <div key={visit.date} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: "10px" }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Visit date</label>
+                        <input type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Sold</label>
-                          <input type="number" value={editForm.sold} onChange={(e) => setEditForm({ ...editForm, sold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      {PRODUCTS.map((p) => (
+                        <div key={p.key} style={{ display: "grid", gridTemplateColumns: "60px 1fr 1fr", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                          <span style={{ fontSize: 10, color: C.textDim }}>{p.key}</span>
+                          <div>
+                            <label style={{ fontSize: 9, color: C.textFaint }}>Sold</label>
+                            <input type="number" value={editForm.products[p.key]?.sold ?? 0} onChange={(e) => setEditForm({ ...editForm, products: { ...editForm.products, [p.key]: { ...editForm.products[p.key], sold: e.target.value } } })} style={{ ...miniInputStyle, width: "100%" }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 9, color: C.textFaint }}>Returned</label>
+                            <input type="number" value={editForm.products[p.key]?.returned ?? 0} onChange={(e) => setEditForm({ ...editForm, products: { ...editForm.products, [p.key]: { ...editForm.products[p.key], returned: e.target.value } } })} style={{ ...miniInputStyle, width: "100%" }} />
+                          </div>
                         </div>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Returned</label>
-                          <input type="number" value={editForm.returned} onChange={(e) => setEditForm({ ...editForm, returned: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
-                        </div>
-                      </div>
+                      ))}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
                         <div>
                           <label style={{ fontSize: 9, color: C.textFaint }}>Paid $</label>
@@ -1636,23 +1650,34 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                         </div>
                       </div>
                       <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Invoice number</label>
+                        <input type="text" value={editForm.invoiceNumber} onChange={(e) => setEditForm({ ...editForm, invoiceNumber: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
                         <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
                         <input type="text" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button
                           type="button"
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            onUpdateVisit(v.id, {
-                              date: editForm.date,
-                              product: editForm.product,
-                              sold: parseFloat(editForm.sold) || 0,
-                              returned: parseFloat(editForm.returned) || 0,
-                              paid: parseFloat(editForm.paid) || 0,
-                              owed: parseFloat(editForm.owed) || 0,
-                              notes: editForm.notes || "",
-                            });
+                            // Update each underlying product row that belongs to this visit.
+                            // The last row (by original order) carries the shared paid/owed/notes/invoice, matching how it was saved.
+                            const lastId = visit.ids[visit.ids.length - 1];
+                            for (const row of visit.rows) {
+                              const p = editForm.products[row.product] || { sold: 0, returned: 0 };
+                              await onUpdateVisit(row.id, {
+                                date: editForm.date,
+                                product: row.product,
+                                sold: parseFloat(p.sold) || 0,
+                                returned: parseFloat(p.returned) || 0,
+                                paid: row.id === lastId ? (parseFloat(editForm.paid) || 0) : 0,
+                                owed: row.id === lastId ? (parseFloat(editForm.owed) || 0) : 0,
+                                notes: row.id === lastId ? (editForm.notes || "") : "",
+                                invoiceNumber: row.id === lastId ? (editForm.invoiceNumber || "") : "",
+                              });
+                            }
                             setEditingVisitId(null);
                           }}
                           style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
@@ -1671,31 +1696,46 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                   );
                 }
                 return (
-                  <div key={v.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  <div key={visit.date} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                     <div
                       style={{ fontSize: 11, color: C.textDim, minWidth: 0, cursor: "pointer", flex: 1 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setEditForm({ date: v.date, product: v.product, sold: v.sold, returned: v.returned, paid: v.paid, owed: v.owed, notes: v.notes || "" });
-                        setEditingVisitId(v.id);
+                        const productsForm = {};
+                        PRODUCTS.forEach((p) => {
+                          const row = visit.rows.find((r) => r.product === p.key);
+                          productsForm[p.key] = { sold: row?.sold ?? 0, returned: row?.returned ?? 0 };
+                        });
+                        setEditForm({ date: visit.date, products: productsForm, paid: visit.paid, owed: visit.owed, notes: visit.notes, invoiceNumber: visit.invoiceNumber });
+                        setEditingVisitId(visit.date);
                       }}
                     >
-                      <div style={{ fontWeight: 600, color: C.text }}>{fmtDate(v.date)} · {v.product}</div>
+                      <div style={{ fontWeight: 600, color: C.text }}>{fmtDate(visit.date)}</div>
                       <div style={{ marginTop: 2 }}>
-                        {v.sold > 0 && <span>sold {v.sold} </span>}
-                        {v.returned > 0 && <span>returned {v.returned} </span>}
-                        {v.paid > 0 && <span style={{ color: C.emerald }}>paid ${v.paid.toFixed(2)} </span>}
-                        {v.owed > 0 && <span style={{ color: C.rose }}>owes ${v.owed.toFixed(2)} </span>}
-                        {v.invoiceNumber && <span style={{ color: C.gold }}>· inv# {v.invoiceNumber} </span>}
-                        {v.sold === 0 && v.returned === 0 && v.paid === 0 && v.owed === 0 && !v.notes && !v.invoiceNumber && <span style={{ color: C.textFaint }}>(tap to edit)</span>}
+                        {visit.products.map((p) => (
+                          <span key={p.id}>
+                            {p.product}: {p.sold > 0 && `sold ${p.sold} `}{p.returned > 0 && `returned ${p.returned} `}
+                          </span>
+                        ))}
+                        {visit.paid > 0 && <span style={{ color: C.emerald }}>· paid ${visit.paid.toFixed(2)} </span>}
+                        {visit.owed > 0 && <span style={{ color: C.rose }}>· owes ${visit.owed.toFixed(2)} </span>}
+                        {visit.invoiceNumber && <span style={{ color: C.gold }}>· inv# {visit.invoiceNumber} </span>}
+                        {visit.products.length === 0 && visit.paid === 0 && visit.owed === 0 && !visit.notes && !visit.invoiceNumber && <span style={{ color: C.textFaint }}>(tap to edit)</span>}
                       </div>
-                      {v.notes && v.notes.trim() && (
-                        <div style={{ marginTop: 3, color: C.amber, fontStyle: "italic" }}>{v.notes}</div>
+                      {visit.notes && visit.notes.trim() && (
+                        <div style={{ marginTop: 3, color: C.amber, fontStyle: "italic" }}>{visit.notes}</div>
                       )}
                     </div>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete this logged visit? This can't be undone.")) onDeleteVisit(v.id); }}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete this entire visit from ${fmtDate(visit.date)}? This removes all ${visit.ids.length} product row(s) logged that day. This can't be undone.`)) {
+                          for (const id of visit.ids) {
+                            await onDeleteVisit(id);
+                          }
+                        }
+                      }}
                       style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
                     >
                       <Trash2 size={13} />
