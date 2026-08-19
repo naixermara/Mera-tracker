@@ -110,6 +110,7 @@ const emptyLogForm = {
   dayReturned: "",
   paid: "",
   owed: "",
+  invoiceNumber: "",
   notes: "",
 };
 
@@ -253,6 +254,7 @@ export default function MeraConsignmentApp() {
             paid: Number(r.paid),
             owed: Number(r.owed || 0),
             notes: r.notes || "",
+            invoiceNumber: r.invoice_number || "",
           }))
         );
       } catch (e) {
@@ -306,6 +308,7 @@ export default function MeraConsignmentApp() {
             paid: v.paid,
             owed: v.owed,
             notes: v.notes,
+            invoice_number: v.invoiceNumber || null,
             created_by: authUser?.email || "unknown",
           }))
         ),
@@ -322,6 +325,7 @@ export default function MeraConsignmentApp() {
           paid: Number(r.paid),
           owed: Number(r.owed || 0),
           notes: r.notes || "",
+          invoiceNumber: r.invoice_number || "",
         })),
       ]);
       setSaveError(false);
@@ -366,6 +370,7 @@ export default function MeraConsignmentApp() {
           returned: changes.returned,
           paid: changes.paid,
           owed: changes.owed,
+          notes: changes.notes,
           updated_by: authUser?.email || "unknown",
           updated_at: new Date().toISOString(),
         }),
@@ -498,6 +503,7 @@ export default function MeraConsignmentApp() {
     rows[rows.length - 1].paid = parseFloat(logForm.paid) || 0;
     rows[rows.length - 1].owed = parseFloat(logForm.owed) || 0;
     rows[rows.length - 1].notes = logForm.notes;
+    rows[rows.length - 1].invoiceNumber = logForm.invoiceNumber;
 
     await addVisits(rows);
     setLogForm({ ...emptyLogForm, storeId: logForm.storeId, date: logForm.date });
@@ -1081,6 +1087,10 @@ export default function MeraConsignmentApp() {
               <input type="date" value={logForm.date} onChange={(e) => setLogForm({ ...logForm, date: e.target.value })} style={inputStyle} />
             </Field>
 
+            <Field label="Invoice number (optional)">
+              <input type="text" value={logForm.invoiceNumber} onChange={(e) => setLogForm({ ...logForm, invoiceNumber: e.target.value })} style={inputStyle} placeholder="e.g. INV-0042" />
+            </Field>
+
             <Field label="Notes (optional)">
               <textarea value={logForm.notes} onChange={(e) => setLogForm({ ...logForm, notes: e.target.value })} style={{ ...inputStyle, minHeight: 55 }} />
             </Field>
@@ -1621,6 +1631,10 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                           <input type="number" step="0.01" value={editForm.owed} onChange={(e) => setEditForm({ ...editForm, owed: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
                         </div>
                       </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
+                      </div>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button
                           type="button"
@@ -1633,6 +1647,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                               returned: parseFloat(editForm.returned) || 0,
                               paid: parseFloat(editForm.paid) || 0,
                               owed: parseFloat(editForm.owed) || 0,
+                              notes: editForm.notes || "",
                             });
                             setEditingVisitId(null);
                           }}
@@ -1657,7 +1672,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                       style={{ fontSize: 11, color: C.textDim, minWidth: 0, cursor: "pointer", flex: 1 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setEditForm({ date: v.date, product: v.product, sold: v.sold, returned: v.returned, paid: v.paid, owed: v.owed });
+                        setEditForm({ date: v.date, product: v.product, sold: v.sold, returned: v.returned, paid: v.paid, owed: v.owed, notes: v.notes || "" });
                         setEditingVisitId(v.id);
                       }}
                     >
@@ -1667,8 +1682,12 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                         {v.returned > 0 && <span>returned {v.returned} </span>}
                         {v.paid > 0 && <span style={{ color: C.emerald }}>paid ${v.paid.toFixed(2)} </span>}
                         {v.owed > 0 && <span style={{ color: C.rose }}>owes ${v.owed.toFixed(2)} </span>}
-                        {v.sold === 0 && v.returned === 0 && v.paid === 0 && v.owed === 0 && <span style={{ color: C.textFaint }}>(tap to edit)</span>}
+                        {v.invoiceNumber && <span style={{ color: C.gold }}>· inv# {v.invoiceNumber} </span>}
+                        {v.sold === 0 && v.returned === 0 && v.paid === 0 && v.owed === 0 && !v.notes && !v.invoiceNumber && <span style={{ color: C.textFaint }}>(tap to edit)</span>}
                       </div>
+                      {v.notes && v.notes.trim() && (
+                        <div style={{ marginTop: 3, color: C.amber, fontStyle: "italic" }}>{v.notes}</div>
+                      )}
                     </div>
                     <button
                       type="button"
