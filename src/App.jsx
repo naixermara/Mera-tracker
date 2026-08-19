@@ -1440,10 +1440,15 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
           )}
 
 
-          {store.latestNote && (
+          {store.latestNote && store.owedAmount > 0 && (
             <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
               <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
               {store.latestNote}
+            </div>
+          )}
+          {store.latestNote && store.owedAmount === 0 && (
+            <div style={{ fontSize: 11, color: C.textFaint, fontStyle: "italic", padding: "0 2px", marginBottom: 10 }}>
+              Note from last visit: "{store.latestNote}" — resolved, no longer owed.
             </div>
           )}
 
