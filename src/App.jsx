@@ -3,6 +3,7 @@ import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Walle
 
 const SUPABASE_URL = "https://idkjsxrqaklyhidptaon.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Y-yZsch-GC8QNXYY8ja-dA_MaBE4El0";
+const OWNER_EMAIL = "rosamaramfi@gmail.com";
 
 let currentAccessToken = null;
 
@@ -144,6 +145,9 @@ export default function MeraConsignmentApp() {
   const [showRemainingBreakdown, setShowRemainingBreakdown] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [showNewStore, setShowNewStore] = useState(false);
+  const [showActivityLog, setShowActivityLog] = useState(false);
+  const [activityEntries, setActivityEntries] = useState(null);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [newStoreForm, setNewStoreForm] = useState({
     name: "", day: "", firstSent: todayStr(), pl: "", night: "", dayp: "", plPrice: "", nightPrice: "", dayPrice: "",
   });
@@ -237,6 +241,35 @@ export default function MeraConsignmentApp() {
     })();
   }, [authUser]);
 
+  async function logActivity(action, storeName, details) {
+    try {
+      await sbFetch("activity_log", {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          store_name: storeName,
+          details,
+          user_email: authUser?.email || "unknown",
+        }),
+      });
+    } catch (e) {
+      // Non-critical — don't block the real action if logging fails
+    }
+  }
+
+  async function openActivityLog() {
+    setShowActivityLog(true);
+    setActivityLoading(true);
+    try {
+      const rows = await sbFetch("activity_log?select=*&order=created_at.desc&limit=200");
+      setActivityEntries(rows || []);
+    } catch (e) {
+      setActivityEntries([]);
+    } finally {
+      setActivityLoading(false);
+    }
+  }
+
   async function addVisits(rows) {
     try {
       const inserted = await sbFetch("visits", {
@@ -251,6 +284,7 @@ export default function MeraConsignmentApp() {
             paid: v.paid,
             owed: v.owed,
             notes: v.notes,
+            created_by: authUser?.email || "unknown",
           }))
         ),
       });
@@ -269,12 +303,16 @@ export default function MeraConsignmentApp() {
         })),
       ]);
       setSaveError(false);
+      const summary = rows.map((r) => `${r.product}: sold ${r.sold}, returned ${r.returned}`).join("; ");
+      const paidNote = rows[rows.length - 1]?.paid > 0 ? ` · paid $${rows[rows.length - 1].paid.toFixed(2)}` : "";
+      logActivity("Logged visit", rows[0]?.store, summary + paidNote);
     } catch (e) {
       setSaveError(true);
     }
   }
 
   async function deleteVisit(id) {
+    const visitBeingDeleted = (visits || []).find((v) => v.id === id);
     try {
       await sbFetch(`visits?id=eq.${id}`, { method: "DELETE" });
       // Verify it's actually gone by re-fetching this specific row from the database
@@ -285,6 +323,9 @@ export default function MeraConsignmentApp() {
       }
       setVisits((prev) => (prev || []).filter((v) => v.id !== id));
       setSaveError(false);
+      if (visitBeingDeleted) {
+        logActivity("Deleted visit", visitBeingDeleted.store, `${visitBeingDeleted.product}: sold ${visitBeingDeleted.sold}, returned ${visitBeingDeleted.returned}, paid $${visitBeingDeleted.paid.toFixed(2)} (dated ${visitBeingDeleted.date})`);
+      }
     } catch (e) {
       alert("Delete failed with an error: " + e.message);
       setSaveError(true);
@@ -292,6 +333,7 @@ export default function MeraConsignmentApp() {
   }
 
   async function updateVisit(id, changes) {
+    const before = (visits || []).find((v) => v.id === id);
     try {
       await sbFetch(`visits?id=eq.${id}`, {
         method: "PATCH",
@@ -302,12 +344,21 @@ export default function MeraConsignmentApp() {
           returned: changes.returned,
           paid: changes.paid,
           owed: changes.owed,
+          updated_by: authUser?.email || "unknown",
+          updated_at: new Date().toISOString(),
         }),
       });
       setVisits((prev) =>
         (prev || []).map((v) => (v.id === id ? { ...v, ...changes } : v))
       );
       setSaveError(false);
+      if (before) {
+        logActivity(
+          "Edited visit",
+          before.store,
+          `${before.product} → sold ${before.sold}→${changes.sold}, returned ${before.returned}→${changes.returned}, paid $${before.paid.toFixed(2)}→$${changes.paid.toFixed(2)}`
+        );
+      }
     } catch (e) {
       setSaveError(true);
     }
@@ -345,6 +396,7 @@ export default function MeraConsignmentApp() {
         },
       ]);
       setSaveError(false);
+      logActivity("Added new store", inserted.name, `Day ${inserted.day}, opening stock PL:${inserted.pl_initial} Night:${inserted.night_initial} Day:${inserted.day_initial}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -353,6 +405,7 @@ export default function MeraConsignmentApp() {
   }
 
   async function updateStorePrices(storeId, prices) {
+    const store = stores.find((s) => s.id === storeId);
     try {
       await sbFetch(`stores?id=eq.${storeId}`, {
         method: "PATCH",
@@ -366,6 +419,7 @@ export default function MeraConsignmentApp() {
         prev.map((s) => (s.id === storeId ? { ...s, ...prices } : s))
       );
       setSaveError(false);
+      logActivity("Updated prices", store?.name, `PL $${prices.plPrice.toFixed(2)}, Night $${prices.nightPrice.toFixed(2)}, Day $${prices.dayPrice.toFixed(2)}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -491,7 +545,7 @@ export default function MeraConsignmentApp() {
       const allTimePaymentHistory = storeVisits.filter((x) => x.paid > 0).sort((a, b) => a.date.localeCompare(b.date));
       const lastVisitDate = storeVisits.length ? storeVisits.map((x) => x.date).sort().slice(-1)[0] : null;
       const visitedThisMonth = storeVisits.some((x) => isThisMonth(x.date));
-      const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim());
+      const notedVisits = storeVisits.filter((x) => x.notes && x.notes.trim()).sort((a, b) => a.date.localeCompare(b.date));
       const latestNote = notedVisits.length ? notedVisits[notedVisits.length - 1].notes : "";
       // Paid/Owes status resets each month — based only on visits within the selected month,
       // not the store's all-time history. No visit logged this month = no badge shown.
@@ -647,6 +701,15 @@ export default function MeraConsignmentApp() {
             >
               <Plus size={16} /> Log a visit
             </button>
+            {authUser?.email === OWNER_EMAIL && (
+              <button
+                onClick={openActivityLog}
+                title="Activity log"
+                style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.textFaint, borderRadius: 10, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                <ClipboardList size={16} />
+              </button>
+            )}
             <button
               onClick={() => { if (window.confirm("Sign out?")) handleLogout(); }}
               title="Sign out"
@@ -1083,6 +1146,43 @@ export default function MeraConsignmentApp() {
           </form>
         </div>
       )}
+
+      {showActivityLog && (
+        <div onClick={() => setShowActivityLog(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 560, maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexShrink: 0 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>Activity log</h2>
+              <button type="button" onClick={() => setShowActivityLog(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {activityLoading ? (
+                <div style={{ textAlign: "center", color: C.textFaint, padding: "30px 0" }}>Loading…</div>
+              ) : !activityEntries || activityEntries.length === 0 ? (
+                <div style={{ textAlign: "center", color: C.textFaint, padding: "30px 0", fontSize: 13 }}>No activity recorded yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {activityEntries.map((entry) => (
+                    <div key={entry.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.gold }}>{entry.action}</span>
+                        <span style={{ fontSize: 10, color: C.textFaint, flexShrink: 0 }}>{new Date(entry.created_at).toLocaleString()}</span>
+                      </div>
+                      {entry.store_name && (
+                        <div style={{ fontSize: 12, color: C.text, fontWeight: 600, marginBottom: 2 }}>{entry.store_name}</div>
+                      )}
+                      {entry.details && (
+                        <div style={{ fontSize: 11, color: C.textDim, marginBottom: 4 }}>{entry.details}</div>
+                      )}
+                      <div style={{ fontSize: 10, color: C.textFaint }}>by {entry.user_email}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1440,17 +1540,23 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
           )}
 
 
-          {store.latestNote && store.owedAmount > 0 && (
-            <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
-              <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
-              {store.latestNote}
-            </div>
-          )}
-          {store.latestNote && store.owedAmount === 0 && (
-            <div style={{ fontSize: 11, color: C.textFaint, fontStyle: "italic", padding: "0 2px", marginBottom: 10 }}>
-              Note from last visit: "{store.latestNote}" — resolved, no longer owed.
-            </div>
-          )}
+          {store.latestNote && (() => {
+            const noteIsAboutOwing = store.latestNote.includes("ខ្វះ") || store.latestNote.includes("owe");
+            const isStale = noteIsAboutOwing && store.owedAmount === 0;
+            if (isStale) {
+              return (
+                <div style={{ fontSize: 11, color: C.textFaint, fontStyle: "italic", padding: "0 2px", marginBottom: 10 }}>
+                  Note from last visit: "{store.latestNote}" — resolved, no longer owed.
+                </div>
+              );
+            }
+            return (
+              <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
+                <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
+                {store.latestNote}
+              </div>
+            );
+          })()}
 
           <button
             type="button"
