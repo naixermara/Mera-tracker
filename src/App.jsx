@@ -455,6 +455,37 @@ export default function MeraConsignmentApp() {
     }
   }
 
+  async function updateStoreDetails(storeId, details) {
+    const before = stores.find((s) => s.id === storeId);
+    try {
+      await sbFetch(`stores?id=eq.${storeId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          day: details.day,
+          first_sent: details.firstSent,
+          pl_initial: details.pl,
+          night_initial: details.night,
+          day_initial: details.dayp,
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) => (s.id === storeId ? { ...s, ...details } : s))
+      );
+      setSaveError(false);
+      if (before) {
+        logActivity(
+          "Edited store details",
+          before.name,
+          `Day ${before.day}→${details.day}, opening PL ${before.pl}→${details.pl}, Night ${before.night}→${details.night}, Day ${before.dayp}→${details.dayp}`
+        );
+      }
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
   async function submitLog(e) {
     e.preventDefault();
     if (!logForm.storeId) return;
@@ -1028,6 +1059,7 @@ export default function MeraConsignmentApp() {
                 onDeleteVisit={deleteVisit}
                 onUpdateVisit={updateVisit}
                 onUpdatePrices={updateStorePrices}
+                onUpdateStoreDetails={updateStoreDetails}
               />
             ))}
           </div>
@@ -1411,12 +1443,14 @@ function StatCard({ icon: Icon, label, value, subtitle, onClick, active }) {
   );
 }
 
-function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments, onDeleteVisit, onUpdateVisit, onUpdatePrices }) {
+function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments, onDeleteVisit, onUpdateVisit, onUpdatePrices, onUpdateStoreDetails }) {
   const [showHistory, setShowHistory] = useState(false);
   const [editingVisitId, setEditingVisitId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [editingPrices, setEditingPrices] = useState(false);
   const [priceForm, setPriceForm] = useState(null);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsForm, setDetailsForm] = useState(null);
   const visitedColor = store.visitedThisMonth ? C.emerald : C.amber;
   const visitedBg = store.visitedThisMonth ? C.emeraldBg : C.amberBg;
   return (
@@ -1535,6 +1569,73 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                 style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
               >
                 Save prices
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!editingDetails) {
+                setDetailsForm({
+                  day: store.day,
+                  firstSent: store.firstSent,
+                  pl: store.products[0].init,
+                  night: store.products[1].init,
+                  dayp: store.products[2].init,
+                });
+              }
+              setEditingDetails(!editingDetails);
+            }}
+            style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3, marginBottom: editingDetails ? 8 : 13, display: "block" }}
+          >
+            {editingDetails ? "Cancel" : "Edit store details"}
+          </button>
+
+          {editingDetails && (
+            <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 13 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Visit day (1-31)</label>
+                  <input type="number" min="1" max="31" value={detailsForm.day} onChange={(e) => setDetailsForm({ ...detailsForm, day: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>First sent date</label>
+                  <input type="date" value={detailsForm.firstSent} onChange={(e) => setDetailsForm({ ...detailsForm, firstSent: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+              </div>
+              <div style={{ fontSize: 9, color: C.textFaint, marginBottom: 4 }}>Opening stock (ដើមគ្រា)</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                  <input type="number" value={detailsForm.pl} onChange={(e) => setDetailsForm({ ...detailsForm, pl: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                  <input type="number" value={detailsForm.night} onChange={(e) => setDetailsForm({ ...detailsForm, night: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                  <input type="number" value={detailsForm.dayp} onChange={(e) => setDetailsForm({ ...detailsForm, dayp: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const ok = await onUpdateStoreDetails(store.id, {
+                    day: parseInt(detailsForm.day, 10) || store.day,
+                    firstSent: detailsForm.firstSent,
+                    pl: parseFloat(detailsForm.pl) || 0,
+                    night: parseFloat(detailsForm.night) || 0,
+                    dayp: parseFloat(detailsForm.dayp) || 0,
+                  });
+                  if (ok) setEditingDetails(false);
+                }}
+                style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+              >
+                Save details
               </button>
             </div>
           )}
