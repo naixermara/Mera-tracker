@@ -7,12 +7,14 @@ const OWNER_EMAIL = "rosamaramfi@gmail.com";
 
 let currentAccessToken = null;
 
-function setAccessToken(token) {
+function setAccessToken(token, refreshToken) {
   currentAccessToken = token;
   if (token) {
     localStorage.setItem("mera_session", token);
+    if (refreshToken) localStorage.setItem("mera_refresh", refreshToken);
   } else {
     localStorage.removeItem("mera_session");
+    localStorage.removeItem("mera_refresh");
   }
 }
 
@@ -47,6 +49,16 @@ async function signIn(email, password) {
     throw new Error(data.error_description || data.msg || "Login failed");
   }
   return data;
+}
+
+async function refreshSession(refreshToken) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  if (!res.ok) return null;
+  return res.json();
 }
 
 async function verifyToken(token) {
@@ -161,18 +173,28 @@ export default function MeraConsignmentApp() {
   useEffect(() => {
     (async () => {
       const savedToken = localStorage.getItem("mera_session");
+      const savedRefresh = localStorage.getItem("mera_refresh");
       if (!savedToken) {
         setAuthUser(null);
         return;
       }
-      const user = await verifyToken(savedToken);
+      let user = await verifyToken(savedToken);
       if (user) {
         currentAccessToken = savedToken;
         setAuthUser(user);
-      } else {
-        localStorage.removeItem("mera_session");
-        setAuthUser(null);
+        return;
       }
+      // Access token expired — try refreshing it with the refresh token before giving up
+      if (savedRefresh) {
+        const refreshed = await refreshSession(savedRefresh);
+        if (refreshed && refreshed.access_token) {
+          setAccessToken(refreshed.access_token, refreshed.refresh_token);
+          setAuthUser(refreshed.user);
+          return;
+        }
+      }
+      setAccessToken(null);
+      setAuthUser(null);
     })();
   }, []);
 
@@ -181,7 +203,7 @@ export default function MeraConsignmentApp() {
     setAuthLoading(true);
     try {
       const data = await signIn(email, password);
-      setAccessToken(data.access_token);
+      setAccessToken(data.access_token, data.refresh_token);
       setAuthUser(data.user);
     } catch (e) {
       setAuthError(e.message);
