@@ -147,6 +147,7 @@ export default function MeraConsignmentApp() {
   const [loadError, setLoadError] = useState(null);
 
   const [search, setSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [expanded, setExpanded] = useState(null);
@@ -633,11 +634,19 @@ export default function MeraConsignmentApp() {
 
   const filtered = useMemo(() => {
     return enriched.filter((s) => {
+      if (s.totalRemaining === 0) return false;
       if (selectedDay && s.day !== selectedDay) return false;
       if (search && !s.name.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
   }, [enriched, search, selectedDay]);
+
+  const inactiveStores = useMemo(() => {
+    return enriched
+      .filter((s) => s.totalRemaining === 0)
+      .filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [enriched, search]);
 
   const dayCounts = useMemo(() => {
     const counts = {};
@@ -976,7 +985,7 @@ export default function MeraConsignmentApp() {
         </div>
 
         {/* Search */}
-        <div style={{ position: "relative", marginBottom: 18 }}>
+        <div style={{ position: "relative", marginBottom: 12 }}>
           <Search size={15} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: C.textFaint }} />
           <input
             value={search}
@@ -985,6 +994,42 @@ export default function MeraConsignmentApp() {
             style={{ width: "100%", padding: "12px 14px 12px 38px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 14, background: C.surface, color: C.text }}
           />
         </div>
+
+        {inactiveStores.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowInactive(!showInactive)}
+            style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 12, cursor: "pointer", textDecoration: "underline", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3, marginBottom: 18, display: "block" }}
+          >
+            {showInactive ? "Hide" : "Show"} stores no longer stocking ({inactiveStores.length})
+          </button>
+        )}
+
+        {showInactive && inactiveStores.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+              No stock remaining — likely stopped selling with us
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {inactiveStores.map((s) => (
+                <StoreRow
+                  key={s.id}
+                  store={s}
+                  expanded={expanded === s.id}
+                  onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
+                  showPayments={showPayments === s.id}
+                  onTogglePayments={() => setShowPayments(showPayments === s.id ? null : s.id)}
+                  showAllTimePayments={showAllTimePayments === s.id}
+                  onToggleAllTimePayments={() => setShowAllTimePayments(showAllTimePayments === s.id ? null : s.id)}
+                  onDeleteVisit={deleteVisit}
+                  onUpdateVisit={updateVisit}
+                  onUpdatePrices={updateStorePrices}
+                  onUpdateStoreDetails={updateStoreDetails}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div style={{ textAlign: "center", color: C.textFaint, padding: "50px 0" }}>Loading\u2026</div>
