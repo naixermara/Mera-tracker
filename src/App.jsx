@@ -333,6 +333,7 @@ export default function MeraConsignmentApp() {
       const paidNote = rows[rows.length - 1]?.paid > 0 ? ` · paid $${rows[rows.length - 1].paid.toFixed(2)}` : "";
       logActivity("Logged visit", rows[0]?.store, summary + paidNote);
     } catch (e) {
+      alert("Save failed: " + e.message);
       setSaveError(true);
     }
   }
