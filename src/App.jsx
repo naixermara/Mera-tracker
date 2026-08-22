@@ -241,6 +241,7 @@ export default function MeraConsignmentApp() {
             plPrice: Number(r.pl_price || 0),
             nightPrice: Number(r.night_price || 0),
             dayPrice: Number(r.day_price || 0),
+            salesperson: r.salesperson || "",
           }))
         );
         setVisits(
@@ -467,6 +468,7 @@ export default function MeraConsignmentApp() {
           pl_initial: details.pl,
           night_initial: details.night,
           day_initial: details.dayp,
+          salesperson: details.salesperson || "",
         }),
       });
       setStores((prev) =>
@@ -479,6 +481,13 @@ export default function MeraConsignmentApp() {
           before.name,
           `Day ${before.day}→${details.day}, opening PL ${before.pl}→${details.pl}, Night ${before.night}→${details.night}, Day ${before.dayp}→${details.dayp}`
         );
+        if ((before.salesperson || "") !== (details.salesperson || "")) {
+          logActivity(
+            "Reassigned salesperson",
+            before.name,
+            `${before.salesperson || "(unassigned)"} → ${details.salesperson || "(unassigned)"}`
+          );
+        }
       }
       return true;
     } catch (e) {
@@ -1449,7 +1458,10 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
           {expanded ? <ChevronDown size={15} color={C.textDim} style={{ flexShrink: 0 }} /> : <ChevronRight size={15} color={C.textDim} style={{ flexShrink: 0 }} />}
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{store.name}</div>
-            <div style={{ fontSize: 11, color: C.textFaint }}>Day {store.day} · first sent {fmtDate(store.firstSent)}</div>
+            <div style={{ fontSize: 11, color: C.textFaint }}>
+              Day {store.day} · first sent {fmtDate(store.firstSent)}
+              {store.salesperson && <> · <span style={{ color: C.gold }}>{store.salesperson}</span></>}
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -1562,6 +1574,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                   pl: store.products[0].init,
                   night: store.products[1].init,
                   dayp: store.products[2].init,
+                  salesperson: store.salesperson || "",
                 });
               }
               setEditingDetails(!editingDetails);
@@ -1573,6 +1586,10 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
 
           {editingDetails && (
             <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 13 }}>
+              <div style={{ marginBottom: 8 }}>
+                <label style={{ fontSize: 9, color: C.textFaint }}>Salesperson</label>
+                <input type="text" value={detailsForm.salesperson} onChange={(e) => setDetailsForm({ ...detailsForm, salesperson: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="e.g. Sokha" />
+              </div>
               <div style={{ marginBottom: 8 }}>
                 <label style={{ fontSize: 9, color: C.textFaint }}>First sent date</label>
                 <input type="date" value={detailsForm.firstSent} onChange={(e) => setDetailsForm({ ...detailsForm, firstSent: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
@@ -1602,6 +1619,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                     pl: parseFloat(detailsForm.pl) || 0,
                     night: parseFloat(detailsForm.night) || 0,
                     dayp: parseFloat(detailsForm.dayp) || 0,
+                    salesperson: detailsForm.salesperson || "",
                   });
                   if (ok) setEditingDetails(false);
                 }}
