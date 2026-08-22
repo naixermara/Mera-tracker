@@ -141,6 +141,7 @@ export default function MeraConsignmentApp() {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [stores, setStores] = useState([]);
+  const [salespeople, setSalespeople] = useState([]);
   const [visits, setVisits] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState(false);
@@ -225,10 +226,12 @@ export default function MeraConsignmentApp() {
     if (!authUser) return;
     (async () => {
       try {
-        const [storeRows, visitRows] = await Promise.all([
+        const [storeRows, visitRows, salespeopleRows] = await Promise.all([
           sbFetch("stores?select=*&order=day.asc,name.asc"),
           sbFetch("visits?select=*&order=created_at.asc"),
+          sbFetch("salespeople?select=*&order=name.asc"),
         ]);
+        setSalespeople(salespeopleRows.map((r) => r.name));
         setStores(
           storeRows.map((r) => ({
             id: r.id,
@@ -454,6 +457,21 @@ export default function MeraConsignmentApp() {
     } catch (e) {
       setSaveError(true);
       return false;
+    }
+  }
+
+  async function addSalesperson(name) {
+    const trimmed = name.trim();
+    if (!trimmed || salespeople.includes(trimmed)) return trimmed;
+    try {
+      await sbFetch("salespeople", {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed }),
+      });
+      setSalespeople((prev) => [...prev, trimmed].sort());
+      return trimmed;
+    } catch (e) {
+      return trimmed; // still usable even if the list-save failed, just won't persist for next time
     }
   }
 
@@ -1035,6 +1053,8 @@ export default function MeraConsignmentApp() {
                   onUpdateVisit={updateVisit}
                   onUpdatePrices={updateStorePrices}
                   onUpdateStoreDetails={updateStoreDetails}
+                  salespeople={salespeople}
+                  onAddSalesperson={addSalesperson}
                 />
               ))}
             </div>
@@ -1063,6 +1083,8 @@ export default function MeraConsignmentApp() {
                 onUpdateVisit={updateVisit}
                 onUpdatePrices={updateStorePrices}
                 onUpdateStoreDetails={updateStoreDetails}
+                  salespeople={salespeople}
+                  onAddSalesperson={addSalesperson}
               />
             ))}
           </div>
@@ -1441,13 +1463,15 @@ function StatCard({ icon: Icon, label, value, subtitle, onClick, active }) {
   );
 }
 
-function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments, onDeleteVisit, onUpdateVisit, onUpdatePrices, onUpdateStoreDetails }) {
+function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, showAllTimePayments, onToggleAllTimePayments, onDeleteVisit, onUpdateVisit, onUpdatePrices, onUpdateStoreDetails, salespeople, onAddSalesperson }) {
   const [showHistory, setShowHistory] = useState(false);
   const [editingVisitId, setEditingVisitId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [editingPrices, setEditingPrices] = useState(false);
   const [priceForm, setPriceForm] = useState(null);
   const [editingDetails, setEditingDetails] = useState(false);
+  const [addingSalesperson, setAddingSalesperson] = useState(false);
+  const [newSalespersonName, setNewSalespersonName] = useState("");
   const [detailsForm, setDetailsForm] = useState(null);
   const visitedColor = store.visitedThisMonth ? C.emerald : C.amber;
   const visitedBg = store.visitedThisMonth ? C.emeraldBg : C.amberBg;
@@ -1588,7 +1612,57 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
             <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 13 }}>
               <div style={{ marginBottom: 8 }}>
                 <label style={{ fontSize: 9, color: C.textFaint }}>Salesperson</label>
-                <input type="text" value={detailsForm.salesperson} onChange={(e) => setDetailsForm({ ...detailsForm, salesperson: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="e.g. Sokha" />
+                {!addingSalesperson ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <select
+                      value={detailsForm.salesperson}
+                      onChange={(e) => setDetailsForm({ ...detailsForm, salesperson: e.target.value })}
+                      style={{ ...miniInputStyle, flex: 1 }}
+                    >
+                      <option value="">(unassigned)</option>
+                      {salespeople.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setAddingSalesperson(true); setNewSalespersonName(""); }}
+                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "0 10px", fontSize: 11, color: C.textDim, cursor: "pointer", whiteSpace: "nowrap" }}
+                    >
+                      + New
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newSalespersonName}
+                      onChange={(e) => setNewSalespersonName(e.target.value)}
+                      style={{ ...miniInputStyle, flex: 1 }}
+                      placeholder="Type new name"
+                    />
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const saved = await onAddSalesperson(newSalespersonName);
+                        setDetailsForm({ ...detailsForm, salesperson: saved });
+                        setAddingSalesperson(false);
+                      }}
+                      style={{ background: C.gold, border: "none", borderRadius: 6, padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#1A1508", cursor: "pointer", whiteSpace: "nowrap" }}
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setAddingSalesperson(false); }}
+                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "0 10px", fontSize: 11, color: C.textDim, cursor: "pointer" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
               <div style={{ marginBottom: 8 }}>
                 <label style={{ fontSize: 9, color: C.textFaint }}>First sent date</label>
