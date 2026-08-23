@@ -140,6 +140,7 @@ export default function MeraConsignmentApp() {
   const [authError, setAuthError] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
 
+  const [page, setPage] = useState("consignment");
   const [stores, setStores] = useState([]);
   const [salespeople, setSalespeople] = useState([]);
   const [visits, setVisits] = useState(null);
@@ -822,6 +823,36 @@ export default function MeraConsignmentApp() {
           </div>
         </div>
 
+        <div style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 4 }}>
+          <button
+            onClick={() => setPage("consignment")}
+            style={{
+              background: page === "consignment" ? C.surface : "none",
+              border: `1px solid ${page === "consignment" ? C.gold : C.border}`,
+              color: page === "consignment" ? C.goldBright : C.textFaint,
+              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Consignment
+          </button>
+          <button
+            onClick={() => setPage("kol")}
+            style={{
+              background: page === "kol" ? C.surface : "none",
+              border: `1px solid ${page === "kol" ? C.gold : C.border}`,
+              color: page === "kol" ? C.goldBright : C.textFaint,
+              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            KOL &amp; Content
+          </button>
+        </div>
+
+        {page === "kol" ? (
+          <KolPage authUser={authUser} C={C} sbFetch={sbFetch} />
+        ) : (
+        <>
+
         {saveError && (
           <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, margin: "18px 0", border: `1px solid ${C.rose}30` }}>
             Couldn't save — try again.
@@ -1285,6 +1316,340 @@ export default function MeraConsignmentApp() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      </>
+      )}
+    </div>
+  );
+}
+
+function KolPage({ authUser, C, sbFetch }) {
+  const [kols, setKols] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+  const [showNewKol, setShowNewKol] = useState(false);
+  const [newKolForm, setNewKolForm] = useState({ name: "", packageCost: "", packageVideos: "", notes: "" });
+  const [showLogVideo, setShowLogVideo] = useState(null);
+  const [videoForm, setVideoForm] = useState({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" });
+  const [showHistory, setShowHistory] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [kolRows, videoRows] = await Promise.all([
+          sbFetch("kols?select=*&order=created_at.asc"),
+          sbFetch("kol_videos?select=*&order=posted_date.asc"),
+        ]);
+        const merged = kolRows.map((k) => ({
+          id: k.id,
+          name: k.name,
+          packageCost: Number(k.package_cost || 0),
+          packageVideos: Number(k.package_videos || 0),
+          notes: k.notes || "",
+          videos: videoRows
+            .filter((v) => v.kol_id === k.id)
+            .map((v) => ({ id: v.id, postedDate: v.posted_date, videoCost: Number(v.video_cost || 0), notes: v.notes || "" })),
+        }));
+        setKols(merged);
+      } catch (e) {
+        setSaveError(true);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function addKol() {
+    if (!newKolForm.name.trim()) return;
+    try {
+      const [inserted] = await sbFetch("kols", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newKolForm.name.trim(),
+          package_cost: parseFloat(newKolForm.packageCost) || 0,
+          package_videos: parseInt(newKolForm.packageVideos, 10) || 0,
+          notes: newKolForm.notes,
+        }),
+      });
+      setKols((prev) => [
+        ...(prev || []),
+        {
+          id: inserted.id,
+          name: inserted.name,
+          packageCost: Number(inserted.package_cost || 0),
+          packageVideos: Number(inserted.package_videos || 0),
+          notes: inserted.notes || "",
+          videos: [],
+        },
+      ]);
+      setShowNewKol(false);
+      setNewKolForm({ name: "", packageCost: "", packageVideos: "", notes: "" });
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function logVideo(kolId) {
+    try {
+      const [inserted] = await sbFetch("kol_videos", {
+        method: "POST",
+        body: JSON.stringify({
+          kol_id: kolId,
+          posted_date: videoForm.postedDate,
+          video_cost: parseFloat(videoForm.videoCost) || 0,
+          notes: videoForm.notes,
+          created_by: authUser?.email || "unknown",
+        }),
+      });
+      setKols((prev) =>
+        prev.map((k) =>
+          k.id === kolId
+            ? { ...k, videos: [...k.videos, { id: inserted.id, postedDate: inserted.posted_date, videoCost: Number(inserted.video_cost || 0), notes: inserted.notes || "" }] }
+            : k
+        )
+      );
+      setShowLogVideo(null);
+      setVideoForm({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" });
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function deleteVideo(kolId, videoId) {
+    try {
+      await sbFetch(`kol_videos?id=eq.${videoId}`, { method: "DELETE" });
+      setKols((prev) =>
+        prev.map((k) => (k.id === kolId ? { ...k, videos: k.videos.filter((v) => v.id !== videoId) } : k))
+      );
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  const enrichedKols = useMemo(() => {
+    if (!kols) return [];
+    return kols.map((k) => {
+      const videosUsed = k.videos.length;
+      const videosLeft = Math.max(0, k.packageVideos - videosUsed);
+      const extraVideoSpend = k.videos.reduce((a, v) => a + v.videoCost, 0);
+      const totalSpend = k.packageCost + extraVideoSpend;
+      // Per-video share of the package cost (e.g. $500 / 10 videos = $50/video).
+      // If there's no package (pure pay-per-video), this is 0 and only each video's own cost counts.
+      const perVideoPackageCost = k.packageVideos > 0 ? k.packageCost / k.packageVideos : 0;
+      const monthVideos = k.videos.filter((v) => monthKey(v.postedDate) === selectedMonth);
+      const monthSpend = monthVideos.reduce((a, v) => a + perVideoPackageCost + v.videoCost, 0);
+      return { ...k, videosUsed, videosLeft, totalSpend, perVideoPackageCost, monthVideos, monthSpend };
+    });
+  }, [kols, selectedMonth]);
+
+  const totals = useMemo(() => {
+    const totalSpend = enrichedKols.reduce((a, k) => a + k.totalSpend, 0);
+    const monthSpend = enrichedKols.reduce((a, k) => a + k.monthSpend, 0);
+    const videosLeft = enrichedKols.reduce((a, k) => a + k.videosLeft, 0);
+    const activeKols = enrichedKols.length;
+    return { totalSpend, monthSpend, videosLeft, activeKols };
+  }, [enrichedKols]);
+
+  const availableMonths = useMemo(() => {
+    const allVideos = (kols || []).flatMap((k) => k.videos);
+    const keys = new Set(allVideos.map((v) => monthKey(v.postedDate)));
+    keys.add(currentMonthKey());
+    return Array.from(keys).sort().reverse();
+  }, [kols]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>KOL &amp; Content</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Track influencer packages, spend, and posted videos</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}
+          >
+            {availableMonths.map((mk) => (
+              <option key={mk} value={mk}>{monthLabel(mk)}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setShowNewKol(true)}
+            className="primarybtn"
+            style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={16} /> New KOL
+          </button>
+        </div>
+      </div>
+
+      {saveError && (
+        <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+          Couldn't save — try again.
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 24 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Spend — {monthLabel(selectedMonth)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthSpend.toFixed(2)}</div>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Total spend (all-time)</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>${totals.totalSpend.toFixed(2)}</div>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Videos left</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.videosLeft}</div>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Active KOLs</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.activeKols}</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
+      ) : enrichedKols.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
+          <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No KOLs yet</p>
+          <p style={{ fontSize: 13 }}>Tap "New KOL" to add your first one.</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {enrichedKols.map((k) => (
+            <div key={k.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, overflow: "hidden" }}>
+              <div onClick={() => setExpanded(expanded === k.id ? null : k.id)} style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>{k.name}</div>
+                  <div style={{ fontSize: 11, color: C.textFaint }}>
+                    {k.packageVideos > 0 ? `${k.videosUsed} / ${k.packageVideos} videos posted` : `${k.videosUsed} video${k.videosUsed === 1 ? "" : "s"} posted`}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  {k.packageVideos > 0 && (
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 10, color: C.textFaint }}>Videos left</div>
+                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: k.videosLeft > 0 ? C.gold : C.emerald }}>{k.videosLeft}</div>
+                    </div>
+                  )}
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: C.textFaint }}>This month</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: C.gold }}>${k.monthSpend.toFixed(2)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: C.textFaint }}>All-time</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15 }}>${k.totalSpend.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {expanded === k.id && (
+                <div style={{ borderTop: `1px solid ${C.border}`, padding: "12px 16px 16px" }}>
+                  {k.notes && (
+                    <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 }}>{k.notes}</div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowLogVideo(k.id); setVideoForm({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" }); }}
+                      style={{ flex: 1, background: C.gold, border: "none", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                    >
+                      + Log posted video
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(showHistory === k.id ? null : k.id); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
+                    >
+                      {showHistory === k.id ? "Hide" : "Show"} history ({k.videos.length})
+                    </button>
+                  </div>
+
+                  {showLogVideo === k.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Posted date</label>
+                          <input type="date" value={videoForm.postedDate} onChange={(e) => setVideoForm({ ...videoForm, postedDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Extra cost $ (if any)</label>
+                          <input type="number" step="0.01" value={videoForm.videoCost} onChange={(e) => setVideoForm({ ...videoForm, videoCost: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={videoForm.notes} onChange={(e) => setVideoForm({ ...videoForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="e.g. link, product featured" />
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => logVideo(k.id)} style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Save</button>
+                        <button onClick={() => setShowLogVideo(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {showHistory === k.id && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {[...k.videos].sort((a, b) => b.postedDate.localeCompare(a.postedDate)).map((v) => (
+                        <div key={v.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                          <div style={{ fontSize: 11, color: C.textDim }}>
+                            <div style={{ fontWeight: 600, color: C.text }}>{new Date(v.postedDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</div>
+                            {v.videoCost > 0 && <div style={{ color: C.emerald, marginTop: 2 }}>+${v.videoCost.toFixed(2)}</div>}
+                            {v.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{v.notes}</div>}
+                          </div>
+                          <button
+                            onClick={() => { if (window.confirm("Delete this video entry?")) deleteVideo(k.id, v.id); }}
+                            style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      {k.videos.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No videos logged yet.</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showNewKol && (
+        <div onClick={() => setShowNewKol(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New KOL</h2>
+              <button onClick={() => setShowNewKol(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Name</label>
+              <input type="text" autoFocus value={newKolForm.name} onChange={(e) => setNewKolForm({ ...newKolForm, name: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="e.g. Srey Neang" />
+            </div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Package cost $</label>
+                <input type="number" step="0.01" value={newKolForm.packageCost} onChange={(e) => setNewKolForm({ ...newKolForm, packageCost: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="0.00" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Package videos</label>
+                <input type="number" value={newKolForm.packageVideos} onChange={(e) => setNewKolForm({ ...newKolForm, packageVideos: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="0" />
+              </div>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
+              <input type="text" value={newKolForm.notes} onChange={(e) => setNewKolForm({ ...newKolForm, notes: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="e.g. platform, contact info" />
+            </div>
+            <button onClick={addKol} disabled={!newKolForm.name.trim()} style={{ width: "100%", background: newKolForm.name.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: newKolForm.name.trim() ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>
+              Add KOL
+            </button>
           </div>
         </div>
       )}
