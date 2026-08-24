@@ -1617,12 +1617,14 @@ function KolPage({ authUser, C, sbFetch }) {
 
   const totals = useMemo(() => {
     const monthSpend = visibleKols.reduce((a, k) => a + k.monthSpend, 0);
-    const videosLeft = visibleKols.reduce((a, k) => a + k.videosLeft, 0);
-    const totalPaid = visibleKols.reduce((a, k) => a + k.totalPaid, 0);
-    const totalOwed = visibleKols.reduce((a, k) => a + k.owed, 0);
+    // Paid/owed/videos-left are genuinely all-time figures — they must NOT be affected by which
+    // month is selected or by completed KOLs being hidden from the visible list for other months.
+    const videosLeft = enrichedKols.reduce((a, k) => a + k.videosLeft, 0);
+    const totalPaid = enrichedKols.reduce((a, k) => a + k.totalPaid, 0);
+    const totalOwed = enrichedKols.reduce((a, k) => a + k.owed, 0);
     const activeKols = visibleKols.length;
     return { monthSpend, videosLeft, totalPaid, totalOwed, activeKols };
-  }, [visibleKols]);
+  }, [visibleKols, enrichedKols]);
 
   const availableMonths = useMemo(() => {
     const allVideos = (kols || []).flatMap((k) => k.videos);
@@ -1672,6 +1674,7 @@ function KolPage({ authUser, C, sbFetch }) {
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Paid (all-time)</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.totalPaid.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>across every KOL, any month</div>
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed</div>
