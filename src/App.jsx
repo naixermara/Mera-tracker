@@ -1586,18 +1586,30 @@ function KolPage({ authUser, C, sbFetch }) {
       const monthSpend = monthVideos.reduce((a, v) => a + perVideoPackageCost + v.videoCost, 0);
       const totalPaid = k.payments.reduce((a, p) => a + p.amount, 0);
       const owed = Math.max(0, committedSpend - totalPaid);
-      return { ...k, videosUsed, videosLeft, committedSpend, perVideoPackageCost, monthVideos, monthSpend, totalPaid, owed };
+      // Complete = every package video posted AND fully paid. Once complete, the KOL "belongs"
+      // to whichever month their last video was posted in, so it can still be found under that month.
+      const isComplete = k.packageVideos > 0 && videosLeft === 0 && owed === 0;
+      const lastVideoDate = k.videos.length ? [...k.videos].map((v) => v.postedDate).sort().slice(-1)[0] : null;
+      const completionMonth = lastVideoDate ? monthKey(lastVideoDate) : null;
+      return { ...k, videosUsed, videosLeft, committedSpend, perVideoPackageCost, monthVideos, monthSpend, totalPaid, owed, isComplete, completionMonth };
     });
   }, [kols, selectedMonth]);
 
+  const visibleKols = useMemo(() => {
+    return enrichedKols.filter((k) => {
+      if (!k.isComplete) return true; // always show active/ongoing KOLs regardless of month
+      return k.completionMonth === selectedMonth; // completed ones only show in their finishing month
+    });
+  }, [enrichedKols, selectedMonth]);
+
   const totals = useMemo(() => {
-    const monthSpend = enrichedKols.reduce((a, k) => a + k.monthSpend, 0);
-    const videosLeft = enrichedKols.reduce((a, k) => a + k.videosLeft, 0);
-    const totalPaid = enrichedKols.reduce((a, k) => a + k.totalPaid, 0);
-    const totalOwed = enrichedKols.reduce((a, k) => a + k.owed, 0);
-    const activeKols = enrichedKols.length;
+    const monthSpend = visibleKols.reduce((a, k) => a + k.monthSpend, 0);
+    const videosLeft = visibleKols.reduce((a, k) => a + k.videosLeft, 0);
+    const totalPaid = visibleKols.reduce((a, k) => a + k.totalPaid, 0);
+    const totalOwed = visibleKols.reduce((a, k) => a + k.owed, 0);
+    const activeKols = visibleKols.length;
     return { monthSpend, videosLeft, totalPaid, totalOwed, activeKols };
-  }, [enrichedKols]);
+  }, [visibleKols]);
 
   const availableMonths = useMemo(() => {
     const allVideos = (kols || []).flatMap((k) => k.videos);
@@ -1660,20 +1672,21 @@ function KolPage({ authUser, C, sbFetch }) {
 
       {loading ? (
         <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
-      ) : enrichedKols.length === 0 ? (
+      ) : visibleKols.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
           <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No KOLs yet</p>
           <p style={{ fontSize: 13 }}>Tap "New KOL" to add your first one.</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-          {enrichedKols.map((k) => (
+          {visibleKols.map((k) => (
             <div key={k.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, overflow: "hidden" }}>
               <div onClick={() => setExpanded(expanded === k.id ? null : k.id)} style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{k.name}</div>
                   <div style={{ fontSize: 11, color: C.textFaint }}>
                     {k.packageVideos > 0 ? `${k.videosUsed} / ${k.packageVideos} videos posted` : `${k.videosUsed} video${k.videosUsed === 1 ? "" : "s"} posted`}
+                    {k.isComplete && <span style={{ color: C.emerald }}> · Completed</span>}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
