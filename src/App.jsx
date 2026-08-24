@@ -1356,6 +1356,12 @@ function KolPage({ authUser, C, sbFetch }) {
   const [showLogPayment, setShowLogPayment] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
   const [showPayHistory, setShowPayHistory] = useState(null);
+  const [editingKol, setEditingKol] = useState(null);
+  const [editKolForm, setEditKolForm] = useState(null);
+  const [editingVideoId, setEditingVideoId] = useState(null);
+  const [editVideoForm, setEditVideoForm] = useState(null);
+  const [editingPaymentId, setEditingPaymentId] = useState(null);
+  const [editPaymentForm, setEditPaymentForm] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -1496,6 +1502,76 @@ function KolPage({ authUser, C, sbFetch }) {
     }
   }
 
+  async function updateKol(kolId, changes) {
+    try {
+      await sbFetch(`kols?id=eq.${kolId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: changes.name,
+          package_cost: changes.packageCost,
+          package_videos: changes.packageVideos,
+          notes: changes.notes,
+        }),
+      });
+      setKols((prev) => prev.map((k) => (k.id === kolId ? { ...k, ...changes } : k)));
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function updateVideo(kolId, videoId, changes) {
+    try {
+      await sbFetch(`kol_videos?id=eq.${videoId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          posted_date: changes.postedDate,
+          video_cost: changes.videoCost,
+          notes: changes.notes,
+        }),
+      });
+      setKols((prev) =>
+        prev.map((k) =>
+          k.id === kolId
+            ? { ...k, videos: k.videos.map((v) => (v.id === videoId ? { ...v, ...changes } : v)) }
+            : k
+        )
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function updatePayment(kolId, paymentId, changes) {
+    try {
+      await sbFetch(`kol_payments?id=eq.${paymentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          payment_date: changes.paymentDate,
+          amount: changes.amount,
+          notes: changes.notes,
+        }),
+      });
+      setKols((prev) =>
+        prev.map((k) =>
+          k.id === kolId
+            ? { ...k, payments: k.payments.map((p) => (p.id === paymentId ? { ...p, ...changes } : p)) }
+            : k
+        )
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
   const enrichedKols = useMemo(() => {
     if (!kols) return [];
     return kols.map((k) => {
@@ -1628,6 +1704,58 @@ function KolPage({ authUser, C, sbFetch }) {
                     <span>Paid: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${k.totalPaid.toFixed(2)}</b></span>
                     <span>Owed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: k.owed > 0 ? C.rose : C.text }}>${k.owed.toFixed(2)}</b></span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (editingKol !== k.id) {
+                        setEditKolForm({ name: k.name, packageCost: k.packageCost, packageVideos: k.packageVideos, notes: k.notes });
+                      }
+                      setEditingKol(editingKol === k.id ? null : k.id);
+                    }}
+                    style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3, marginBottom: editingKol === k.id ? 8 : 12, display: "block" }}
+                  >
+                    {editingKol === k.id ? "Cancel" : "Edit KOL details"}
+                  </button>
+
+                  {editingKol === k.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Name</label>
+                        <input type="text" value={editKolForm.name} onChange={(e) => setEditKolForm({ ...editKolForm, name: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Package cost $</label>
+                          <input type="number" step="0.01" value={editKolForm.packageCost} onChange={(e) => setEditKolForm({ ...editKolForm, packageCost: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Package videos</label>
+                          <input type="number" value={editKolForm.packageVideos} onChange={(e) => setEditKolForm({ ...editKolForm, packageVideos: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={editKolForm.notes} onChange={(e) => setEditKolForm({ ...editKolForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await updateKol(k.id, {
+                            name: editKolForm.name,
+                            packageCost: parseFloat(editKolForm.packageCost) || 0,
+                            packageVideos: parseInt(editKolForm.packageVideos, 10) || 0,
+                            notes: editKolForm.notes,
+                          });
+                          if (ok) setEditingKol(null);
+                        }}
+                        style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowLogPayment(k.id); setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" }); }}
@@ -1668,23 +1796,67 @@ function KolPage({ authUser, C, sbFetch }) {
 
                   {showPayHistory === k.id && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                      {[...k.payments].sort((a, b) => b.paymentDate.localeCompare(a.paymentDate)).map((p) => (
-                        <div key={p.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                          <div style={{ fontSize: 11, color: C.textDim }}>
-                            <div style={{ fontWeight: 600, color: C.text }}>
-                              {new Date(p.paymentDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-                              <span style={{ color: C.emerald }}> · ${p.amount.toFixed(2)}</span>
+                      {[...k.payments].sort((a, b) => b.paymentDate.localeCompare(a.paymentDate)).map((p) => {
+                        if (editingPaymentId === p.id) {
+                          return (
+                            <div key={p.id} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: 10 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Date</label>
+                                  <input type="date" value={editPaymentForm.paymentDate} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, paymentDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                                  <input type="number" step="0.01" value={editPaymentForm.amount} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                                <input type="text" value={editPaymentForm.notes} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                              </div>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                  onClick={async () => {
+                                    const ok = await updatePayment(k.id, p.id, {
+                                      paymentDate: editPaymentForm.paymentDate,
+                                      amount: parseFloat(editPaymentForm.amount) || 0,
+                                      notes: editPaymentForm.notes,
+                                    });
+                                    if (ok) setEditingPaymentId(null);
+                                  }}
+                                  style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                                >
+                                  Save
+                                </button>
+                                <button onClick={() => setEditingPaymentId(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                              </div>
                             </div>
-                            {p.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{p.notes}</div>}
+                          );
+                        }
+                        return (
+                          <div key={p.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                            <div
+                              style={{ fontSize: 11, color: C.textDim, cursor: "pointer", flex: 1 }}
+                              onClick={() => {
+                                setEditPaymentForm({ paymentDate: p.paymentDate, amount: p.amount, notes: p.notes });
+                                setEditingPaymentId(p.id);
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, color: C.text }}>
+                                {new Date(p.paymentDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                                <span style={{ color: C.emerald }}> · ${p.amount.toFixed(2)}</span>
+                              </div>
+                              {p.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{p.notes}</div>}
+                            </div>
+                            <button
+                              onClick={() => { if (window.confirm("Delete this payment entry?")) deletePayment(k.id, p.id); }}
+                              style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
                           </div>
-                          <button
-                            onClick={() => { if (window.confirm("Delete this payment entry?")) deletePayment(k.id, p.id); }}
-                            style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                       {k.payments.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No payments logged yet.</div>}
                     </div>
                   )}
@@ -1729,21 +1901,65 @@ function KolPage({ authUser, C, sbFetch }) {
 
                   {showHistory === k.id && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {[...k.videos].sort((a, b) => b.postedDate.localeCompare(a.postedDate)).map((v) => (
-                        <div key={v.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                          <div style={{ fontSize: 11, color: C.textDim }}>
-                            <div style={{ fontWeight: 600, color: C.text }}>{new Date(v.postedDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</div>
-                            {v.videoCost > 0 && <div style={{ color: C.emerald, marginTop: 2 }}>+${v.videoCost.toFixed(2)}</div>}
-                            {v.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{v.notes}</div>}
+                      {[...k.videos].sort((a, b) => b.postedDate.localeCompare(a.postedDate)).map((v) => {
+                        if (editingVideoId === v.id) {
+                          return (
+                            <div key={v.id} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: 10 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Posted date</label>
+                                  <input type="date" value={editVideoForm.postedDate} onChange={(e) => setEditVideoForm({ ...editVideoForm, postedDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Extra cost $</label>
+                                  <input type="number" step="0.01" value={editVideoForm.videoCost} onChange={(e) => setEditVideoForm({ ...editVideoForm, videoCost: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                                <input type="text" value={editVideoForm.notes} onChange={(e) => setEditVideoForm({ ...editVideoForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                              </div>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                  onClick={async () => {
+                                    const ok = await updateVideo(k.id, v.id, {
+                                      postedDate: editVideoForm.postedDate,
+                                      videoCost: parseFloat(editVideoForm.videoCost) || 0,
+                                      notes: editVideoForm.notes,
+                                    });
+                                    if (ok) setEditingVideoId(null);
+                                  }}
+                                  style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                                >
+                                  Save
+                                </button>
+                                <button onClick={() => setEditingVideoId(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={v.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                            <div
+                              style={{ fontSize: 11, color: C.textDim, cursor: "pointer", flex: 1 }}
+                              onClick={() => {
+                                setEditVideoForm({ postedDate: v.postedDate, videoCost: v.videoCost, notes: v.notes });
+                                setEditingVideoId(v.id);
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, color: C.text }}>{new Date(v.postedDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</div>
+                              {v.videoCost > 0 && <div style={{ color: C.emerald, marginTop: 2 }}>+${v.videoCost.toFixed(2)}</div>}
+                              {v.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{v.notes}</div>}
+                            </div>
+                            <button
+                              onClick={() => { if (window.confirm("Delete this video entry?")) deleteVideo(k.id, v.id); }}
+                              style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
                           </div>
-                          <button
-                            onClick={() => { if (window.confirm("Delete this video entry?")) deleteVideo(k.id, v.id); }}
-                            style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                       {k.videos.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No videos logged yet.</div>}
                     </div>
                   )}
