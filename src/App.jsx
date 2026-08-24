@@ -1369,6 +1369,7 @@ function KolPage({ authUser, C, sbFetch }) {
   const [showLogPayment, setShowLogPayment] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
   const [showPayHistory, setShowPayHistory] = useState(null);
+  const [showPaidBreakdown, setShowPaidBreakdown] = useState(false);
   const [editingKol, setEditingKol] = useState(null);
   const [editKolForm, setEditKolForm] = useState(null);
   const [editingVideoId, setEditingVideoId] = useState(null);
@@ -1626,6 +1627,12 @@ function KolPage({ authUser, C, sbFetch }) {
     return { monthSpend, videosLeft, totalPaid, totalOwed, activeKols };
   }, [visibleKols, enrichedKols]);
 
+  const paidBreakdown = useMemo(() => {
+    return enrichedKols
+      .filter((k) => k.totalPaid > 0)
+      .sort((a, b) => b.totalPaid - a.totalPaid);
+  }, [enrichedKols]);
+
   const availableMonths = useMemo(() => {
     const allVideos = (kols || []).flatMap((k) => k.videos);
     const keys = new Set(allVideos.map((v) => monthKey(v.postedDate)));
@@ -1671,11 +1678,15 @@ function KolPage({ authUser, C, sbFetch }) {
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Spend — {monthLabel(selectedMonth)}</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthSpend.toFixed(2)}</div>
         </div>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+        <button
+          type="button"
+          onClick={() => setShowPaidBreakdown(!showPaidBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showPaidBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Paid (all-time)</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.totalPaid.toFixed(2)}</div>
-          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>across every KOL, any month</div>
-        </div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>across every KOL, any month · tap to see by KOL</div>
+        </button>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.totalOwed > 0 ? C.rose : C.text }}>${totals.totalOwed.toFixed(2)}</div>
@@ -1685,6 +1696,23 @@ function KolPage({ authUser, C, sbFetch }) {
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.videosLeft}</div>
         </div>
       </div>
+
+      {showPaidBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Paid (all-time) — by KOL
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {paidBreakdown.map((k) => (
+              <div key={k.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.border}`, padding: "9px 4px" }}>
+                <span style={{ fontSize: 13, color: C.text }}>{k.name}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${k.totalPaid.toFixed(2)}</span>
+              </div>
+            ))}
+            {paidBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>No payments logged yet.</div>}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
