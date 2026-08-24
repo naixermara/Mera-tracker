@@ -777,7 +777,7 @@ export default function MeraConsignmentApp() {
               <Sparkles size={17} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
-              {page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : "Consignment Operations"}
+              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : "Consignment Operations"}
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
@@ -829,6 +829,17 @@ export default function MeraConsignmentApp() {
 
         <div style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 4 }}>
           <button
+            onClick={() => setPage("overview")}
+            style={{
+              background: page === "overview" ? C.surface : "none",
+              border: `1px solid ${page === "overview" ? C.gold : C.border}`,
+              color: page === "overview" ? C.goldBright : C.textFaint,
+              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Overview
+          </button>
+          <button
             onClick={() => setPage("consignment")}
             style={{
               background: page === "consignment" ? C.surface : "none",
@@ -863,7 +874,9 @@ export default function MeraConsignmentApp() {
           </button>
         </div>
 
-        {page === "kol" ? (
+        {page === "overview" ? (
+          <OverviewPage authUser={authUser} C={C} sbFetch={sbFetch} onNavigate={setPage} />
+        ) : page === "kol" ? (
           <KolPage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : page === "credit" ? (
           <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} />
@@ -2382,6 +2395,134 @@ function CreditTermPage({ authUser, C, sbFetch }) {
             </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
+  const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [consignmentVisits, setConsignmentVisits] = useState([]);
+  const [kols, setKols] = useState([]);
+  const [creditInvoices, setCreditInvoices] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [visitRows, kolRows, videoRows, paymentRows, invoiceRows] = await Promise.all([
+          sbFetch("visits?select=*"),
+          sbFetch("kols?select=*"),
+          sbFetch("kol_videos?select=*"),
+          sbFetch("kol_payments?select=*"),
+          sbFetch("credit_invoices?select=*"),
+        ]);
+        setConsignmentVisits(visitRows || []);
+        const mergedKols = (kolRows || []).map((k) => ({
+          id: k.id,
+          packageCost: Number(k.package_cost || 0),
+          packageVideos: Number(k.package_videos || 0),
+          videos: (videoRows || []).filter((v) => v.kol_id === k.id),
+          payments: (paymentRows || []).filter((p) => p.kol_id === k.id),
+        }));
+        setKols(mergedKols);
+        setCreditInvoices(invoiceRows || []);
+      } catch (e) {
+        // Overview is read-only and non-critical — fail quietly, sections just show $0
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const availableMonths = useMemo(() => {
+    const keys = new Set();
+    consignmentVisits.forEach((v) => keys.add(monthKey(v.date)));
+    kols.forEach((k) => k.videos.forEach((v) => keys.add(monthKey(v.posted_date))));
+    creditInvoices.forEach((inv) => keys.add(monthKey(inv.invoice_date)));
+    keys.add(currentMonthKey());
+    return Array.from(keys).sort().reverse();
+  }, [consignmentVisits, kols, creditInvoices]);
+
+  const summary = useMemo(() => {
+    const monthConsignmentVisits = consignmentVisits.filter((v) => monthKey(v.date) === selectedMonth);
+    const consignmentCollected = monthConsignmentVisits.reduce((a, v) => a + Number(v.paid || 0), 0);
+
+    let kolSpend = 0;
+    kols.forEach((k) => {
+      const perVideoCost = k.packageVideos > 0 ? k.packageCost / k.packageVideos : 0;
+      const monthVideos = k.videos.filter((v) => monthKey(v.posted_date) === selectedMonth);
+      kolSpend += monthVideos.reduce((a, v) => a + perVideoCost + Number(v.video_cost || 0), 0);
+    });
+
+    const monthInvoices = creditInvoices.filter((inv) => monthKey(inv.invoice_date) === selectedMonth);
+    const creditBilled = monthInvoices.reduce((a, inv) => a + Number(inv.amount || 0), 0);
+    const creditCollected = monthInvoices.reduce((a, inv) => a + Number(inv.paid || 0), 0);
+
+    return { consignmentCollected, kolSpend, creditBilled, creditCollected };
+  }, [consignmentVisits, kols, creditInvoices, selectedMonth]);
+
+  const netTotal = summary.consignmentCollected + summary.creditCollected - summary.kolSpend;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Overview</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Combined view across Consignment, KOL &amp; Content, and Credit Term</div>
+        </div>
+        <select
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}
+        >
+          {availableMonths.map((mk) => (
+            <option key={mk} value={mk}>{monthLabel(mk)}</option>
+          ))}
+        </select>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
+      ) : (
+        <>
+          <div style={{ background: C.surface, border: `1px solid ${C.gold}50`, borderRadius: 14, padding: "22px 24px", marginBottom: 24 }}>
+            <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Net — {monthLabel(selectedMonth)}</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 32, fontWeight: 600, marginTop: 8, color: netTotal >= 0 ? C.emerald : C.rose }}>
+              {netTotal >= 0 ? "+" : "-"}${Math.abs(netTotal).toFixed(2)}
+            </div>
+            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 6 }}>Consignment + Credit Term collected, minus KOL &amp; Content spend</div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
+            <button
+              onClick={() => onNavigate("consignment")}
+              style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
+            >
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Consignment</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.consignmentCollected.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected this month</div>
+            </button>
+
+            <button
+              onClick={() => onNavigate("kol")}
+              style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
+            >
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>KOL &amp; Content</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.gold }}>${summary.kolSpend.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>spent this month</div>
+            </button>
+
+            <button
+              onClick={() => onNavigate("credit")}
+              style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
+            >
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Credit Term</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.creditCollected.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected of ${summary.creditBilled.toFixed(2)} billed</div>
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
