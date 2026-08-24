@@ -1120,7 +1120,6 @@ export default function MeraConsignmentApp() {
             ))}
           </div>
         )}
-      </div>
 
       {showLog && (
         <div onClick={closeLogModal} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
@@ -1321,6 +1320,7 @@ export default function MeraConsignmentApp() {
       )}
       </>
       )}
+      </div>
     </div>
   );
 }
