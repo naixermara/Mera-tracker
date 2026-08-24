@@ -782,28 +782,32 @@ export default function MeraConsignmentApp() {
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}
-            >
-              {availableMonths.map((k) => (
-                <option key={k} value={k}>{monthLabel(k)}</option>
-              ))}
-            </select>
-            <button
-              onClick={() => setShowNewStore(true)}
-              style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
-            >
-              <Plus size={16} /> New store
-            </button>
-            <button
-              onClick={() => setShowLog(true)}
-              className="primarybtn"
-              style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7, letterSpacing: "0.02em" }}
-            >
-              <Plus size={16} /> Log a visit
-            </button>
+            {page === "consignment" && (
+              <>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}
+                >
+                  {availableMonths.map((k) => (
+                    <option key={k} value={k}>{monthLabel(k)}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setShowNewStore(true)}
+                  style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+                >
+                  <Plus size={16} /> New store
+                </button>
+                <button
+                  onClick={() => setShowLog(true)}
+                  className="primarybtn"
+                  style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7, letterSpacing: "0.02em" }}
+                >
+                  <Plus size={16} /> Log a visit
+                </button>
+              </>
+            )}
             {authUser?.email === OWNER_EMAIL && (
               <button
                 onClick={openActivityLog}
