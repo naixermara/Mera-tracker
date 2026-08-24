@@ -846,10 +846,23 @@ export default function MeraConsignmentApp() {
           >
             KOL &amp; Content
           </button>
+          <button
+            onClick={() => setPage("credit")}
+            style={{
+              background: page === "credit" ? C.surface : "none",
+              border: `1px solid ${page === "credit" ? C.gold : C.border}`,
+              color: page === "credit" ? C.goldBright : C.textFaint,
+              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Credit Term
+          </button>
         </div>
 
         {page === "kol" ? (
           <KolPage authUser={authUser} C={C} sbFetch={sbFetch} />
+        ) : page === "credit" ? (
+          <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : (
         <>
 
@@ -1649,6 +1662,375 @@ function KolPage({ authUser, C, sbFetch }) {
             </div>
             <button onClick={addKol} disabled={!newKolForm.name.trim()} style={{ width: "100%", background: newKolForm.name.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: newKolForm.name.trim() ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>
               Add KOL
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreditTermPage({ authUser, C, sbFetch }) {
+  const [stores, setStores] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+  const [showNewStore, setShowNewStore] = useState(false);
+  const [newStoreForm, setNewStoreForm] = useState({ name: "", creditDays: "30", notes: "" });
+  const [showLogInvoice, setShowLogInvoice] = useState(null);
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+  const [showHistory, setShowHistory] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [storeRows, invoiceRows] = await Promise.all([
+          sbFetch("credit_stores?select=*&order=created_at.asc"),
+          sbFetch("credit_invoices?select=*&order=invoice_date.asc"),
+        ]);
+        const merged = storeRows.map((s) => ({
+          id: s.id,
+          name: s.name,
+          creditDays: Number(s.credit_days || 30),
+          notes: s.notes || "",
+          invoices: invoiceRows
+            .filter((inv) => inv.store_id === s.id)
+            .map((inv) => ({
+              id: inv.id,
+              invoiceDate: inv.invoice_date,
+              invoiceNumber: inv.invoice_number || "",
+              amount: Number(inv.amount || 0),
+              paid: Number(inv.paid || 0),
+              notes: inv.notes || "",
+            })),
+        }));
+        setStores(merged);
+      } catch (e) {
+        setSaveError(true);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function addStore() {
+    if (!newStoreForm.name.trim()) return;
+    try {
+      const [inserted] = await sbFetch("credit_stores", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newStoreForm.name.trim(),
+          credit_days: parseInt(newStoreForm.creditDays, 10) || 30,
+          notes: newStoreForm.notes,
+        }),
+      });
+      setStores((prev) => [
+        ...(prev || []),
+        {
+          id: inserted.id,
+          name: inserted.name,
+          creditDays: Number(inserted.credit_days || 30),
+          notes: inserted.notes || "",
+          invoices: [],
+        },
+      ]);
+      setShowNewStore(false);
+      setNewStoreForm({ name: "", creditDays: "30", notes: "" });
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function logInvoice(storeId) {
+    try {
+      const [inserted] = await sbFetch("credit_invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          store_id: storeId,
+          invoice_date: invoiceForm.invoiceDate,
+          invoice_number: invoiceForm.invoiceNumber,
+          amount: parseFloat(invoiceForm.amount) || 0,
+          paid: parseFloat(invoiceForm.paid) || 0,
+          notes: invoiceForm.notes,
+          created_by: authUser?.email || "unknown",
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) =>
+          s.id === storeId
+            ? {
+                ...s,
+                invoices: [
+                  ...s.invoices,
+                  {
+                    id: inserted.id,
+                    invoiceDate: inserted.invoice_date,
+                    invoiceNumber: inserted.invoice_number || "",
+                    amount: Number(inserted.amount || 0),
+                    paid: Number(inserted.paid || 0),
+                    notes: inserted.notes || "",
+                  },
+                ],
+              }
+            : s
+        )
+      );
+      setShowLogInvoice(null);
+      setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function deleteInvoice(storeId, invoiceId) {
+    try {
+      await sbFetch(`credit_invoices?id=eq.${invoiceId}`, { method: "DELETE" });
+      setStores((prev) =>
+        prev.map((s) => (s.id === storeId ? { ...s, invoices: s.invoices.filter((inv) => inv.id !== invoiceId) } : s))
+      );
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  function dueDate(invoiceDate, creditDays) {
+    const d = new Date(invoiceDate + "T00:00:00");
+    d.setDate(d.getDate() + creditDays);
+    return d.toISOString().slice(0, 10);
+  }
+
+  const enrichedStores = useMemo(() => {
+    if (!stores) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    return stores.map((s) => {
+      const monthInvoices = s.invoices.filter((inv) => monthKey(inv.invoiceDate) === selectedMonth);
+      const monthBilled = monthInvoices.reduce((a, inv) => a + inv.amount, 0);
+      const monthCollected = monthInvoices.reduce((a, inv) => a + inv.paid, 0);
+      const allTimeBilled = s.invoices.reduce((a, inv) => a + inv.amount, 0);
+      const allTimeCollected = s.invoices.reduce((a, inv) => a + inv.paid, 0);
+      const outstanding = Math.max(0, allTimeBilled - allTimeCollected);
+      const overdueInvoices = s.invoices.filter((inv) => {
+        const remaining = inv.amount - inv.paid;
+        return remaining > 0 && dueDate(inv.invoiceDate, s.creditDays) < today;
+      });
+      return { ...s, monthBilled, monthCollected, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length };
+    });
+  }, [stores, selectedMonth]);
+
+  const totals = useMemo(() => {
+    const monthBilled = enrichedStores.reduce((a, s) => a + s.monthBilled, 0);
+    const outstanding = enrichedStores.reduce((a, s) => a + s.outstanding, 0);
+    const overdueCount = enrichedStores.reduce((a, s) => a + s.overdueCount, 0);
+    const activeStores = enrichedStores.length;
+    return { monthBilled, outstanding, overdueCount, activeStores };
+  }, [enrichedStores]);
+
+  const availableMonths = useMemo(() => {
+    const allInvoices = (stores || []).flatMap((s) => s.invoices);
+    const keys = new Set(allInvoices.map((inv) => monthKey(inv.invoiceDate)));
+    keys.add(currentMonthKey());
+    return Array.from(keys).sort().reverse();
+  }, [stores]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Credit Term</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Track invoices and payments for credit term stores</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}
+          >
+            {availableMonths.map((mk) => (
+              <option key={mk} value={mk}>{monthLabel(mk)}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setShowNewStore(true)}
+            className="primarybtn"
+            style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={16} /> New store
+          </button>
+        </div>
+      </div>
+
+      {saveError && (
+        <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+          Couldn't save — try again.
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 24 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Billed — {monthLabel(selectedMonth)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthBilled.toFixed(2)}</div>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Outstanding (all-time)</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>${totals.outstanding.toFixed(2)}</div>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Overdue invoices</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.overdueCount > 0 ? C.rose : C.text }}>{totals.overdueCount}</div>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Active stores</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.activeStores}</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
+      ) : enrichedStores.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
+          <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No credit term stores yet</p>
+          <p style={{ fontSize: 13 }}>Tap "New store" to add your first one.</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {enrichedStores.map((s) => (
+            <div key={s.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, overflow: "hidden" }}>
+              <div onClick={() => setExpanded(expanded === s.id ? null : s.id)} style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</div>
+                  <div style={{ fontSize: 11, color: C.textFaint }}>Net {s.creditDays} days{s.overdueCount > 0 ? ` · ${s.overdueCount} overdue` : ""}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: C.textFaint }}>Outstanding</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: s.outstanding > 0 ? C.rose : C.emerald }}>${s.outstanding.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {expanded === s.id && (
+                <div style={{ borderTop: `1px solid ${C.border}`, padding: "12px 16px 16px" }}>
+                  {s.notes && (
+                    <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 }}>{s.notes}</div>
+                  )}
+                  <div style={{ display: "flex", gap: 16, fontSize: 12, marginBottom: 12, color: C.textDim, flexWrap: "wrap" }}>
+                    <span>Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold }}>${s.monthBilled.toFixed(2)}</b></span>
+                    <span>Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${s.monthCollected.toFixed(2)}</b></span>
+                    <span>All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${s.allTimeBilled.toFixed(2)}</b></span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowLogInvoice(s.id); setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" }); }}
+                      style={{ flex: 1, background: C.gold, border: "none", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                    >
+                      + Log invoice
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(showHistory === s.id ? null : s.id); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
+                    >
+                      {showHistory === s.id ? "Hide" : "Show"} invoices ({s.invoices.length})
+                    </button>
+                  </div>
+
+                  {showLogInvoice === s.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Invoice date</label>
+                          <input type="date" value={invoiceForm.invoiceDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Invoice number</label>
+                          <input type="text" value={invoiceForm.invoiceNumber} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceNumber: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                          <input type="number" step="0.01" value={invoiceForm.amount} onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Paid $ (if any now)</label>
+                          <input type="number" step="0.01" value={invoiceForm.paid} onChange={(e) => setInvoiceForm({ ...invoiceForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={invoiceForm.notes} onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => logInvoice(s.id)} style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Save</button>
+                        <button onClick={() => setShowLogInvoice(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {showHistory === s.id && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {[...s.invoices].sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate)).map((inv) => {
+                        const remaining = inv.amount - inv.paid;
+                        const due = dueDate(inv.invoiceDate, s.creditDays);
+                        const today = new Date().toISOString().slice(0, 10);
+                        const isOverdue = remaining > 0 && due < today;
+                        return (
+                          <div key={inv.id} style={{ background: C.bg2, border: `1px solid ${isOverdue ? C.rose + "50" : C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                            <div style={{ fontSize: 11, color: C.textDim }}>
+                              <div style={{ fontWeight: 600, color: C.text }}>
+                                {new Date(inv.invoiceDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                                {inv.invoiceNumber && <span style={{ color: C.gold }}> · inv# {inv.invoiceNumber}</span>}
+                              </div>
+                              <div style={{ marginTop: 2 }}>
+                                <span>${inv.amount.toFixed(2)} billed</span>
+                                {inv.paid > 0 && <span style={{ color: C.emerald }}> · ${inv.paid.toFixed(2)} paid</span>}
+                                {remaining > 0 && <span style={{ color: isOverdue ? C.rose : C.textDim }}> · ${remaining.toFixed(2)} remaining, due {new Date(due + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}{isOverdue ? " (overdue)" : ""}</span>}
+                              </div>
+                              {inv.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{inv.notes}</div>}
+                            </div>
+                            <button
+                              onClick={() => { if (window.confirm("Delete this invoice entry?")) deleteInvoice(s.id, inv.id); }}
+                              style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {s.invoices.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No invoices logged yet.</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showNewStore && (
+        <div onClick={() => setShowNewStore(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New credit term store</h2>
+              <button onClick={() => setShowNewStore(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Store name</label>
+              <input type="text" autoFocus value={newStoreForm.name} onChange={(e) => setNewStoreForm({ ...newStoreForm, name: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="e.g. Big Mart Co." />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Credit term (days)</label>
+              <input type="number" value={newStoreForm.creditDays} onChange={(e) => setNewStoreForm({ ...newStoreForm, creditDays: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="30" />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
+              <input type="text" value={newStoreForm.notes} onChange={(e) => setNewStoreForm({ ...newStoreForm, notes: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="e.g. contact info" />
+            </div>
+            <button onClick={addStore} disabled={!newStoreForm.name.trim()} style={{ width: "100%", background: newStoreForm.name.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: newStoreForm.name.trim() ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>
+              Add store
             </button>
           </div>
         </div>
