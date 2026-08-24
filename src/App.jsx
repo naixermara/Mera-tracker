@@ -777,7 +777,7 @@ export default function MeraConsignmentApp() {
               <Sparkles size={17} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
-              Consignment Operations
+              {page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : "Consignment Operations"}
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
@@ -1353,13 +1353,17 @@ function KolPage({ authUser, C, sbFetch }) {
   const [videoForm, setVideoForm] = useState({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" });
   const [showHistory, setShowHistory] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [showLogPayment, setShowLogPayment] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
+  const [showPayHistory, setShowPayHistory] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [kolRows, videoRows] = await Promise.all([
+        const [kolRows, videoRows, paymentRows] = await Promise.all([
           sbFetch("kols?select=*&order=created_at.asc"),
           sbFetch("kol_videos?select=*&order=posted_date.asc"),
+          sbFetch("kol_payments?select=*&order=payment_date.asc"),
         ]);
         const merged = kolRows.map((k) => ({
           id: k.id,
@@ -1370,6 +1374,9 @@ function KolPage({ authUser, C, sbFetch }) {
           videos: videoRows
             .filter((v) => v.kol_id === k.id)
             .map((v) => ({ id: v.id, postedDate: v.posted_date, videoCost: Number(v.video_cost || 0), notes: v.notes || "" })),
+          payments: paymentRows
+            .filter((p) => p.kol_id === k.id)
+            .map((p) => ({ id: p.id, paymentDate: p.payment_date, amount: Number(p.amount || 0), notes: p.notes || "" })),
         }));
         setKols(merged);
       } catch (e) {
@@ -1450,28 +1457,70 @@ function KolPage({ authUser, C, sbFetch }) {
     }
   }
 
+  async function logPayment(kolId) {
+    try {
+      const [inserted] = await sbFetch("kol_payments", {
+        method: "POST",
+        body: JSON.stringify({
+          kol_id: kolId,
+          payment_date: paymentForm.paymentDate,
+          amount: parseFloat(paymentForm.amount) || 0,
+          notes: paymentForm.notes,
+          created_by: authUser?.email || "unknown",
+        }),
+      });
+      setKols((prev) =>
+        prev.map((k) =>
+          k.id === kolId
+            ? { ...k, payments: [...k.payments, { id: inserted.id, paymentDate: inserted.payment_date, amount: Number(inserted.amount || 0), notes: inserted.notes || "" }] }
+            : k
+        )
+      );
+      setShowLogPayment(null);
+      setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function deletePayment(kolId, paymentId) {
+    try {
+      await sbFetch(`kol_payments?id=eq.${paymentId}`, { method: "DELETE" });
+      setKols((prev) =>
+        prev.map((k) => (k.id === kolId ? { ...k, payments: k.payments.filter((p) => p.id !== paymentId) } : k))
+      );
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
   const enrichedKols = useMemo(() => {
     if (!kols) return [];
     return kols.map((k) => {
       const videosUsed = k.videos.length;
       const videosLeft = Math.max(0, k.packageVideos - videosUsed);
       const extraVideoSpend = k.videos.reduce((a, v) => a + v.videoCost, 0);
-      const totalSpend = k.packageCost + extraVideoSpend;
+      const committedSpend = k.packageCost + extraVideoSpend;
       // Per-video share of the package cost (e.g. $500 / 10 videos = $50/video).
       // If there's no package (pure pay-per-video), this is 0 and only each video's own cost counts.
       const perVideoPackageCost = k.packageVideos > 0 ? k.packageCost / k.packageVideos : 0;
       const monthVideos = k.videos.filter((v) => monthKey(v.postedDate) === selectedMonth);
       const monthSpend = monthVideos.reduce((a, v) => a + perVideoPackageCost + v.videoCost, 0);
-      return { ...k, videosUsed, videosLeft, totalSpend, perVideoPackageCost, monthVideos, monthSpend };
+      const totalPaid = k.payments.reduce((a, p) => a + p.amount, 0);
+      const owed = Math.max(0, committedSpend - totalPaid);
+      return { ...k, videosUsed, videosLeft, committedSpend, perVideoPackageCost, monthVideos, monthSpend, totalPaid, owed };
     });
   }, [kols, selectedMonth]);
 
   const totals = useMemo(() => {
-    const totalSpend = enrichedKols.reduce((a, k) => a + k.totalSpend, 0);
     const monthSpend = enrichedKols.reduce((a, k) => a + k.monthSpend, 0);
     const videosLeft = enrichedKols.reduce((a, k) => a + k.videosLeft, 0);
+    const totalPaid = enrichedKols.reduce((a, k) => a + k.totalPaid, 0);
+    const totalOwed = enrichedKols.reduce((a, k) => a + k.owed, 0);
     const activeKols = enrichedKols.length;
-    return { totalSpend, monthSpend, videosLeft, activeKols };
+    return { monthSpend, videosLeft, totalPaid, totalOwed, activeKols };
   }, [enrichedKols]);
 
   const availableMonths = useMemo(() => {
@@ -1520,16 +1569,16 @@ function KolPage({ authUser, C, sbFetch }) {
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthSpend.toFixed(2)}</div>
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Total spend (all-time)</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>${totals.totalSpend.toFixed(2)}</div>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Paid (all-time)</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.totalPaid.toFixed(2)}</div>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.totalOwed > 0 ? C.rose : C.text }}>${totals.totalOwed.toFixed(2)}</div>
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Videos left</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.videosLeft}</div>
-        </div>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Active KOLs</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.activeKols}</div>
         </div>
       </div>
 
@@ -1563,8 +1612,8 @@ function KolPage({ authUser, C, sbFetch }) {
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: C.gold }}>${k.monthSpend.toFixed(2)}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 10, color: C.textFaint }}>All-time</div>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15 }}>${k.totalSpend.toFixed(2)}</div>
+                    <div style={{ fontSize: 10, color: C.textFaint }}>Owed</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: k.owed > 0 ? C.rose : C.emerald }}>${k.owed.toFixed(2)}</div>
                   </div>
                 </div>
               </div>
@@ -1574,6 +1623,72 @@ function KolPage({ authUser, C, sbFetch }) {
                   {k.notes && (
                     <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 }}>{k.notes}</div>
                   )}
+                  <div style={{ display: "flex", gap: 16, fontSize: 12, marginBottom: 12, color: C.textDim, flexWrap: "wrap" }}>
+                    <span>Package: <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${k.packageCost.toFixed(2)}</b></span>
+                    <span>Paid: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${k.totalPaid.toFixed(2)}</b></span>
+                    <span>Owed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: k.owed > 0 ? C.rose : C.text }}>${k.owed.toFixed(2)}</b></span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowLogPayment(k.id); setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" }); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.gold}`, borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: C.goldBright, cursor: "pointer" }}
+                    >
+                      + Log a payment
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowPayHistory(showPayHistory === k.id ? null : k.id); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
+                    >
+                      {showPayHistory === k.id ? "Hide" : "Show"} payments ({k.payments.length})
+                    </button>
+                  </div>
+
+                  {showLogPayment === k.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Payment date</label>
+                          <input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                          <input type="number" step="0.01" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={paymentForm.notes} onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="e.g. 50% deposit" />
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => logPayment(k.id)} style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Save</button>
+                        <button onClick={() => setShowLogPayment(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {showPayHistory === k.id && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                      {[...k.payments].sort((a, b) => b.paymentDate.localeCompare(a.paymentDate)).map((p) => (
+                        <div key={p.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                          <div style={{ fontSize: 11, color: C.textDim }}>
+                            <div style={{ fontWeight: 600, color: C.text }}>
+                              {new Date(p.paymentDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                              <span style={{ color: C.emerald }}> · ${p.amount.toFixed(2)}</span>
+                            </div>
+                            {p.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{p.notes}</div>}
+                          </div>
+                          <button
+                            onClick={() => { if (window.confirm("Delete this payment entry?")) deletePayment(k.id, p.id); }}
+                            style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      {k.payments.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No payments logged yet.</div>}
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowLogVideo(k.id); setVideoForm({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" }); }}
