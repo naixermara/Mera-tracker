@@ -2076,6 +2076,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [editingStore, setEditingStore] = useState(null);
   const [editStoreForm, setEditStoreForm] = useState(null);
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);
+  const [showBilledBreakdown, setShowBilledBreakdown] = useState(false);
+  const [showMonthOwedBreakdown, setShowMonthOwedBreakdown] = useState(false);
+  const [showOutstandingBreakdown, setShowOutstandingBreakdown] = useState(false);
   const [editInvoiceForm, setEditInvoiceForm] = useState(null);
 
   useEffect(() => {
@@ -2264,6 +2267,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       const monthInvoices = s.invoices.filter((inv) => monthKey(inv.invoiceDate) === selectedMonth);
       const monthBilled = monthInvoices.reduce((a, inv) => a + inv.amount, 0);
       const monthCollected = monthInvoices.reduce((a, inv) => a + inv.paid, 0);
+      const monthOwed = Math.max(0, monthBilled - monthCollected);
       const allTimeBilled = s.invoices.reduce((a, inv) => a + inv.amount, 0);
       const allTimeCollected = s.invoices.reduce((a, inv) => a + inv.paid, 0);
       const outstanding = Math.max(0, allTimeBilled - allTimeCollected);
@@ -2271,16 +2275,25 @@ function CreditTermPage({ authUser, C, sbFetch }) {
         const remaining = inv.amount - inv.paid;
         return remaining > 0 && dueDate(inv.invoiceDate, s.creditDays) < today;
       });
-      return { ...s, monthBilled, monthCollected, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length };
+      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length };
     });
   }, [stores, selectedMonth]);
 
   const totals = useMemo(() => {
     const monthBilled = enrichedStores.reduce((a, s) => a + s.monthBilled, 0);
+    const monthOwed = enrichedStores.reduce((a, s) => a + s.monthOwed, 0);
     const outstanding = enrichedStores.reduce((a, s) => a + s.outstanding, 0);
     const overdueCount = enrichedStores.reduce((a, s) => a + s.overdueCount, 0);
     const activeStores = enrichedStores.length;
-    return { monthBilled, outstanding, overdueCount, activeStores };
+    return { monthBilled, monthOwed, outstanding, overdueCount, activeStores };
+  }, [enrichedStores]);
+
+  const owedBreakdown = useMemo(() => {
+    return enrichedStores.filter((s) => s.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding);
+  }, [enrichedStores]);
+
+  const monthOwedBreakdown = useMemo(() => {
+    return enrichedStores.filter((s) => s.monthOwed > 0).sort((a, b) => b.monthOwed - a.monthOwed);
   }, [enrichedStores]);
 
   const availableMonths = useMemo(() => {
@@ -2323,15 +2336,34 @@ function CreditTermPage({ authUser, C, sbFetch }) {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 24 }}>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={() => setShowBilledBreakdown(!showBilledBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showBilledBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Billed — {monthLabel(selectedMonth)}</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthBilled.toFixed(2)}</div>
-        </div>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Outstanding (all-time)</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>${totals.outstanding.toFixed(2)}</div>
-        </div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowMonthOwedBreakdown(!showMonthOwedBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showMonthOwedBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed — {monthLabel(selectedMonth)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.monthOwed > 0 ? C.rose : C.text }}>${totals.monthOwed.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowOutstandingBreakdown(!showOutstandingBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showOutstandingBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed (all-time)</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.outstanding > 0 ? C.rose : C.text }}>${totals.outstanding.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
+        </button>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Overdue invoices</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.overdueCount > 0 ? C.rose : C.text }}>{totals.overdueCount}</div>
@@ -2341,6 +2373,71 @@ function CreditTermPage({ authUser, C, sbFetch }) {
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.activeStores}</div>
         </div>
       </div>
+
+      {showBilledBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Billed — {monthLabel(selectedMonth)} — by store
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {enrichedStores.filter((s) => s.monthBilled > 0).sort((a, b) => b.monthBilled - a.monthBilled).map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => { setExpanded(s.id); setShowBilledBreakdown(false); }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold }}>${s.monthBilled.toFixed(2)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showMonthOwedBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Still owed — {monthLabel(selectedMonth)} — by store
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {monthOwedBreakdown.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => { setExpanded(s.id); setShowMonthOwedBreakdown(false); }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.monthOwed.toFixed(2)}</span>
+              </button>
+            ))}
+            {monthOwedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing owed this month.</div>}
+          </div>
+        </div>
+      )}
+
+      {showOutstandingBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Still owed (all-time) — by store
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {owedBreakdown.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => { setExpanded(s.id); setShowOutstandingBreakdown(false); }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.outstanding.toFixed(2)}</span>
+              </button>
+            ))}
+            {owedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing outstanding.</div>}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
