@@ -918,28 +918,37 @@ export default function MeraConsignmentApp() {
         {showBreakdown && (
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 22 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-              By store — {monthLabel(selectedMonth)}
+              By visit — {monthLabel(selectedMonth)}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {monthlyBreakdown.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => jumpToStore(s.name, s.id)}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    background: "none", border: "none", borderTop: `1px solid ${C.border}`,
-                    padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg2}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "none"}
-                >
-                  <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald, flexShrink: 0, marginLeft: 12 }}>
-                    ${s.totalCollected.toFixed(2)}
-                  </span>
-                </button>
-              ))}
+              {(visits || [])
+                .filter((v) => v.paid > 0 && monthKey(v.date) === selectedMonth)
+                .sort((a, b) => b.paid - a.paid)
+                .map((v) => {
+                  const matchedStore = stores.find((s) => s.name === v.store);
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => jumpToStore(v.store, matchedStore ? matchedStore.id : null)}
+                      style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        background: "none", border: "none", borderTop: `1px solid ${C.border}`,
+                        padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%", gap: 10,
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = C.bg2}
+                      onMouseLeave={(e) => e.currentTarget.style.background = "none"}
+                    >
+                      <span style={{ fontSize: 13, color: C.text, minWidth: 0 }}>
+                        {v.store}
+                        {v.invoiceNumber && <span style={{ color: C.gold }}> · inv# {v.invoiceNumber}</span>}
+                      </span>
+                      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald, flexShrink: 0 }}>
+                        ${v.paid.toFixed(2)}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
           </div>
         )}
@@ -2389,20 +2398,26 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       {showBilledBreakdown && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-            Billed — {monthLabel(selectedMonth)} — by store
+            Billed — {monthLabel(selectedMonth)} — by invoice
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {enrichedStores.filter((s) => s.monthBilled > 0).sort((a, b) => b.monthBilled - a.monthBilled).map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => { setExpanded(s.id); setShowBilledBreakdown(false); }}
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
-              >
-                <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold }}>${s.monthBilled.toFixed(2)}</span>
-              </button>
-            ))}
+            {enrichedStores
+              .flatMap((s) => s.invoices.filter((inv) => monthKey(inv.invoiceDate) === selectedMonth).map((inv) => ({ ...inv, storeName: s.name, storeId: s.id })))
+              .sort((a, b) => b.amount - a.amount)
+              .map((inv) => (
+                <button
+                  key={inv.id}
+                  type="button"
+                  onClick={() => { setExpanded(inv.storeId); setShowHistory(inv.storeId); setShowBilledBreakdown(false); }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%", gap: 10 }}
+                >
+                  <span style={{ fontSize: 13, color: C.text, minWidth: 0 }}>
+                    {inv.storeName}
+                    {inv.invoiceNumber && <span style={{ color: C.gold }}> · inv# {inv.invoiceNumber}</span>}
+                  </span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>${inv.amount.toFixed(2)}</span>
+                </button>
+              ))}
           </div>
         </div>
       )}
