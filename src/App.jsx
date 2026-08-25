@@ -2212,6 +2212,18 @@ function CreditTermPage({ authUser, C, sbFetch }) {
     }
   }
 
+  async function deleteCreditStore(storeId) {
+    try {
+      await sbFetch(`credit_stores?id=eq.${storeId}`, { method: "DELETE" });
+      setStores((prev) => prev.filter((s) => s.id !== storeId));
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
   async function updateInvoice(storeId, invoiceId, changes) {
     try {
       await sbFetch(`credit_invoices?id=eq.${invoiceId}`, {
@@ -2360,9 +2372,27 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                     <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 }}>{s.notes}</div>
                   )}
                   <div style={{ display: "flex", gap: 16, fontSize: 12, marginBottom: 12, color: C.textDim, flexWrap: "wrap" }}>
-                    <span>Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold }}>${s.monthBilled.toFixed(2)}</b></span>
-                    <span>Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${s.monthCollected.toFixed(2)}</b></span>
-                    <span>All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${s.allTimeBilled.toFixed(2)}</b></span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
+                    >
+                      Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold, textDecoration: "underline" }}>${s.monthBilled.toFixed(2)}</b>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
+                    >
+                      Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, textDecoration: "underline" }}>${s.monthCollected.toFixed(2)}</b>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
+                    >
+                      All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}>${s.allTimeBilled.toFixed(2)}</b>
+                    </button>
                   </div>
 
                   <button
@@ -2403,9 +2433,20 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                           });
                           if (ok) setEditingStore(null);
                         }}
-                        style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                        style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer", marginBottom: 8 }}
                       >
                         Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm(`Delete "${s.name}" entirely? This removes the store and all ${s.invoices.length} invoice(s) logged for it. This can't be undone.`)) {
+                            await deleteCreditStore(s.id);
+                          }
+                        }}
+                        style={{ width: "100%", background: "none", border: `1px solid ${C.rose}50`, borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 600, color: C.rose, cursor: "pointer" }}
+                      >
+                        Delete store
                       </button>
                     </div>
                   )}
