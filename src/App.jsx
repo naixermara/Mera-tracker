@@ -2275,18 +2275,30 @@ function CreditTermPage({ authUser, C, sbFetch }) {
         const remaining = inv.amount - inv.paid;
         return remaining > 0 && dueDate(inv.invoiceDate, s.creditDays) < today;
       });
-      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length };
+      // Complete = every invoice fully paid, with at least one invoice logged. Once complete, the
+      // store "belongs" to whichever month its last invoice was dated, so it's still findable there.
+      const isComplete = s.invoices.length > 0 && outstanding === 0;
+      const lastInvoiceDate = s.invoices.length ? [...s.invoices].map((inv) => inv.invoiceDate).sort().slice(-1)[0] : null;
+      const completionMonth = lastInvoiceDate ? monthKey(lastInvoiceDate) : null;
+      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length, isComplete, completionMonth };
     });
   }, [stores, selectedMonth]);
+
+  const visibleStores = useMemo(() => {
+    return enrichedStores.filter((s) => {
+      if (!s.isComplete) return true;
+      return s.completionMonth === selectedMonth;
+    });
+  }, [enrichedStores, selectedMonth]);
 
   const totals = useMemo(() => {
     const monthBilled = enrichedStores.reduce((a, s) => a + s.monthBilled, 0);
     const monthOwed = enrichedStores.reduce((a, s) => a + s.monthOwed, 0);
     const outstanding = enrichedStores.reduce((a, s) => a + s.outstanding, 0);
     const overdueCount = enrichedStores.reduce((a, s) => a + s.overdueCount, 0);
-    const activeStores = enrichedStores.length;
+    const activeStores = visibleStores.length;
     return { monthBilled, monthOwed, outstanding, overdueCount, activeStores };
-  }, [enrichedStores]);
+  }, [enrichedStores, visibleStores]);
 
   const owedBreakdown = useMemo(() => {
     return enrichedStores.filter((s) => s.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding);
@@ -2441,19 +2453,22 @@ function CreditTermPage({ authUser, C, sbFetch }) {
 
       {loading ? (
         <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
-      ) : enrichedStores.length === 0 ? (
+      ) : visibleStores.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
           <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No credit term stores yet</p>
           <p style={{ fontSize: 13 }}>Tap "New store" to add your first one.</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-          {enrichedStores.map((s) => (
+          {visibleStores.map((s) => (
             <div key={s.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, overflow: "hidden" }}>
               <div onClick={() => setExpanded(expanded === s.id ? null : s.id)} style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</div>
-                  <div style={{ fontSize: 11, color: C.textFaint }}>Net {s.creditDays} days{s.overdueCount > 0 ? ` · ${s.overdueCount} overdue` : ""}</div>
+                  <div style={{ fontSize: 11, color: C.textFaint }}>
+                    Net {s.creditDays} days{s.overdueCount > 0 ? ` · ${s.overdueCount} overdue` : ""}
+                    {s.isComplete && <span style={{ color: C.emerald }}> · Completed</span>}
+                  </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                   <div style={{ textAlign: "right" }}>
