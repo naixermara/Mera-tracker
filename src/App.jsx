@@ -2073,6 +2073,10 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [invoiceForm, setInvoiceForm] = useState({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
   const [showHistory, setShowHistory] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [editingStore, setEditingStore] = useState(null);
+  const [editStoreForm, setEditStoreForm] = useState(null);
+  const [editingInvoiceId, setEditingInvoiceId] = useState(null);
+  const [editInvoiceForm, setEditInvoiceForm] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -2186,6 +2190,52 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       setSaveError(false);
     } catch (e) {
       setSaveError(true);
+    }
+  }
+
+  async function updateCreditStore(storeId, changes) {
+    try {
+      await sbFetch(`credit_stores?id=eq.${storeId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: changes.name,
+          credit_days: changes.creditDays,
+          notes: changes.notes,
+        }),
+      });
+      setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, ...changes } : s)));
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function updateInvoice(storeId, invoiceId, changes) {
+    try {
+      await sbFetch(`credit_invoices?id=eq.${invoiceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          invoice_date: changes.invoiceDate,
+          invoice_number: changes.invoiceNumber,
+          amount: changes.amount,
+          paid: changes.paid,
+          notes: changes.notes,
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) =>
+          s.id === storeId
+            ? { ...s, invoices: s.invoices.map((inv) => (inv.id === invoiceId ? { ...inv, ...changes } : inv)) }
+            : s
+        )
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
     }
   }
 
@@ -2314,6 +2364,52 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                     <span>Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${s.monthCollected.toFixed(2)}</b></span>
                     <span>All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${s.allTimeBilled.toFixed(2)}</b></span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (editingStore !== s.id) {
+                        setEditStoreForm({ name: s.name, creditDays: s.creditDays, notes: s.notes });
+                      }
+                      setEditingStore(editingStore === s.id ? null : s.id);
+                    }}
+                    style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3, marginBottom: editingStore === s.id ? 8 : 12, display: "block" }}
+                  >
+                    {editingStore === s.id ? "Cancel" : "Edit store details"}
+                  </button>
+
+                  {editingStore === s.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Store name</label>
+                        <input type="text" value={editStoreForm.name} onChange={(e) => setEditStoreForm({ ...editStoreForm, name: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Credit term (days)</label>
+                        <input type="number" value={editStoreForm.creditDays} onChange={(e) => setEditStoreForm({ ...editStoreForm, creditDays: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={editStoreForm.notes} onChange={(e) => setEditStoreForm({ ...editStoreForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await updateCreditStore(s.id, {
+                            name: editStoreForm.name,
+                            creditDays: parseInt(editStoreForm.creditDays, 10) || 30,
+                            notes: editStoreForm.notes,
+                          });
+                          if (ok) setEditingStore(null);
+                        }}
+                        style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowLogInvoice(s.id); setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" }); }}
@@ -2369,9 +2465,65 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                         const due = dueDate(inv.invoiceDate, s.creditDays);
                         const today = new Date().toISOString().slice(0, 10);
                         const isOverdue = remaining > 0 && due < today;
+
+                        if (editingInvoiceId === inv.id) {
+                          return (
+                            <div key={inv.id} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: 10 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Invoice date</label>
+                                  <input type="date" value={editInvoiceForm.invoiceDate} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, invoiceDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Invoice number</label>
+                                  <input type="text" value={editInvoiceForm.invoiceNumber} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, invoiceNumber: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                                  <input type="number" step="0.01" value={editInvoiceForm.amount} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Paid $</label>
+                                  <input type="number" step="0.01" value={editInvoiceForm.paid} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                                <input type="text" value={editInvoiceForm.notes} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                              </div>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                  onClick={async () => {
+                                    const ok = await updateInvoice(s.id, inv.id, {
+                                      invoiceDate: editInvoiceForm.invoiceDate,
+                                      invoiceNumber: editInvoiceForm.invoiceNumber,
+                                      amount: parseFloat(editInvoiceForm.amount) || 0,
+                                      paid: parseFloat(editInvoiceForm.paid) || 0,
+                                      notes: editInvoiceForm.notes,
+                                    });
+                                    if (ok) setEditingInvoiceId(null);
+                                  }}
+                                  style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                                >
+                                  Save
+                                </button>
+                                <button onClick={() => setEditingInvoiceId(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         return (
                           <div key={inv.id} style={{ background: C.bg2, border: `1px solid ${isOverdue ? C.rose + "50" : C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                            <div style={{ fontSize: 11, color: C.textDim }}>
+                            <div
+                              style={{ fontSize: 11, color: C.textDim, cursor: "pointer", flex: 1 }}
+                              onClick={() => {
+                                setEditInvoiceForm({ invoiceDate: inv.invoiceDate, invoiceNumber: inv.invoiceNumber, amount: inv.amount, paid: inv.paid, notes: inv.notes });
+                                setEditingInvoiceId(inv.id);
+                              }}
+                            >
                               <div style={{ fontWeight: 600, color: C.text }}>
                                 {new Date(inv.invoiceDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
                                 {inv.invoiceNumber && <span style={{ color: C.gold }}> · inv# {inv.invoiceNumber}</span>}
