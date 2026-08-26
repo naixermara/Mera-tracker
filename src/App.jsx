@@ -18,24 +18,37 @@ function setAccessToken(token, refreshToken) {
   }
 }
 
-async function sbFetch(path, options = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${currentAccessToken || SUPABASE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: options.method === "POST" ? "return=representation" : undefined,
-      ...(options.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase error ${res.status}: ${text}`);
+async function sbFetch(path, options = {}, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+        ...options,
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${currentAccessToken || SUPABASE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: options.method === "POST" ? "return=representation" : undefined,
+          ...(options.headers || {}),
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Supabase error ${res.status}: ${text}`);
+      }
+      const text = await res.text();
+      if (!text) return null;
+      return JSON.parse(text);
+    } catch (e) {
+      // Only retry genuine network failures (fetch throwing before even reaching the server) —
+      // not real errors like 400/403 from the database, which would just fail again identically.
+      const isNetworkFailure = e instanceof TypeError;
+      if (isNetworkFailure && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+        continue;
+      }
+      throw e;
+    }
   }
-  const text = await res.text();
-  if (!text) return null;
-  return JSON.parse(text);
 }
 
 async function signIn(email, password) {
@@ -147,6 +160,7 @@ export default function MeraConsignmentApp() {
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -225,50 +239,54 @@ export default function MeraConsignmentApp() {
 
   useEffect(() => {
     if (!authUser) return;
-    (async () => {
-      try {
-        const [storeRows, visitRows, salespeopleRows] = await Promise.all([
-          sbFetch("stores?select=*&order=day.asc,name.asc"),
-          sbFetch("visits?select=*&order=created_at.asc"),
-          sbFetch("salespeople?select=*&order=name.asc"),
-        ]);
-        setSalespeople(salespeopleRows.map((r) => r.name));
-        setStores(
-          storeRows.map((r) => ({
-            id: r.id,
-            day: r.day,
-            name: r.name,
-            firstSent: r.first_sent,
-            pl: r.pl_initial,
-            night: r.night_initial,
-            dayp: r.day_initial,
-            plPrice: Number(r.pl_price || 0),
-            nightPrice: Number(r.night_price || 0),
-            dayPrice: Number(r.day_price || 0),
-            salesperson: r.salesperson || "",
-          }))
-        );
-        setVisits(
-          visitRows.map((r) => ({
-            id: r.id,
-            date: r.date,
-            store: r.store_name,
-            product: r.product,
-            sold: Number(r.sold),
-            returned: Number(r.returned),
-            paid: Number(r.paid),
-            owed: Number(r.owed || 0),
-            notes: r.notes || "",
-            invoiceNumber: r.invoice_number || "",
-          }))
-        );
-      } catch (e) {
-        setLoadError(e.message || String(e));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [authUser]);
+    loadAllData();
+  }, [authUser, retryCount]);
+
+  async function loadAllData() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [storeRows, visitRows, salespeopleRows] = await Promise.all([
+        sbFetch("stores?select=*&order=day.asc,name.asc"),
+        sbFetch("visits?select=*&order=created_at.asc"),
+        sbFetch("salespeople?select=*&order=name.asc"),
+      ]);
+      setSalespeople(salespeopleRows.map((r) => r.name));
+      setStores(
+        storeRows.map((r) => ({
+          id: r.id,
+          day: r.day,
+          name: r.name,
+          firstSent: r.first_sent,
+          pl: r.pl_initial,
+          night: r.night_initial,
+          dayp: r.day_initial,
+          plPrice: Number(r.pl_price || 0),
+          nightPrice: Number(r.night_price || 0),
+          dayPrice: Number(r.day_price || 0),
+          salesperson: r.salesperson || "",
+        }))
+      );
+      setVisits(
+        visitRows.map((r) => ({
+          id: r.id,
+          date: r.date,
+          store: r.store_name,
+          product: r.product,
+          sold: Number(r.sold),
+          returned: Number(r.returned),
+          paid: Number(r.paid),
+          owed: Number(r.owed || 0),
+          notes: r.notes || "",
+          invoiceNumber: r.invoice_number || "",
+        }))
+      );
+    } catch (e) {
+      setLoadError(e.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function logActivity(action, storeName, details) {
     try {
@@ -748,6 +766,23 @@ export default function MeraConsignmentApp() {
 
   if (!authUser) {
     return <LoginScreen onLogin={handleLogin} error={authError} loading={authLoading} />;
+  }
+
+  if (loadError && !stores.length && !loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div style={{ maxWidth: 380, textAlign: "center" }}>
+          <div style={{ color: C.rose, fontFamily: "'Bodoni Moda', serif", fontSize: 20, marginBottom: 10 }}>Couldn't load your data</div>
+          <div style={{ color: C.textFaint, fontSize: 13, marginBottom: 20, wordBreak: "break-word" }}>{loadError}</div>
+          <button
+            onClick={() => setRetryCount((n) => n + 1)}
+            style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 24px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
