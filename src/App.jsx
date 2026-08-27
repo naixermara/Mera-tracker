@@ -2118,6 +2118,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [showHistory, setShowHistory] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [editingStore, setEditingStore] = useState(null);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [deletingBulk, setDeletingBulk] = useState(false);
   const [editStoreForm, setEditStoreForm] = useState(null);
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);
   const [showBilledBreakdown, setShowBilledBreakdown] = useState(false);
@@ -2271,6 +2274,25 @@ function CreditTermPage({ authUser, C, sbFetch }) {
     }
   }
 
+  async function deleteMultipleCreditStores(ids) {
+    setDeletingBulk(true);
+    try {
+      // One request per store rather than a single "id=in.(...)" filter — keeps each
+      // deletion independently retried/observable via sbFetch, and simple to reason about.
+      for (const id of ids) {
+        await sbFetch(`credit_stores?id=eq.${id}`, { method: "DELETE" });
+      }
+      setStores((prev) => prev.filter((s) => !ids.includes(s.id)));
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    } finally {
+      setDeletingBulk(false);
+      setSelectedIds(new Set());
+      setBulkMode(false);
+    }
+  }
+
   async function updateInvoice(storeId, invoiceId, changes) {
     try {
       await sbFetch(`credit_invoices?id=eq.${invoiceId}`, {
@@ -2324,7 +2346,10 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       const isComplete = s.invoices.length > 0 && outstanding === 0;
       const lastInvoiceDate = s.invoices.length ? [...s.invoices].map((inv) => inv.invoiceDate).sort().slice(-1)[0] : null;
       const completionMonth = lastInvoiceDate ? monthKey(lastInvoiceDate) : null;
-      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length, isComplete, completionMonth };
+      const invoicedThisMonth = monthInvoices.length > 0;
+      const notedInvoices = [...s.invoices].filter((inv) => inv.notes && inv.notes.trim()).sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
+      const latestNote = notedInvoices.length ? notedInvoices[notedInvoices.length - 1].notes : "";
+      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length, isComplete, completionMonth, invoicedThisMonth, latestNote };
     });
   }, [stores, selectedMonth]);
 
@@ -2383,8 +2408,36 @@ function CreditTermPage({ authUser, C, sbFetch }) {
           >
             <Plus size={16} /> New store
           </button>
+          <button
+            onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()); }}
+            style={{ background: "none", border: `1.5px solid ${bulkMode ? C.rose : C.border}`, color: bulkMode ? C.rose : C.textFaint, borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+          >
+            {bulkMode ? "Cancel" : "Select stores"}
+          </button>
         </div>
       </div>
+
+      {bulkMode && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.surface, border: `1px solid ${C.rose}40`, borderRadius: 10, padding: "10px 14px", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: C.textDim }}>{selectedIds.size} selected</span>
+          <button
+            disabled={selectedIds.size === 0 || deletingBulk}
+            onClick={() => {
+              if (window.confirm(`Delete ${selectedIds.size} store(s) and all their invoices? This can't be undone.`)) {
+                deleteMultipleCreditStores(Array.from(selectedIds));
+              }
+            }}
+            style={{
+              background: selectedIds.size === 0 ? C.border : C.rose,
+              color: selectedIds.size === 0 ? C.textFaint : "#2A0F0F",
+              border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700,
+              cursor: selectedIds.size === 0 ? "default" : "pointer",
+            }}
+          >
+            {deletingBulk ? "Deleting…" : `Delete selected (${selectedIds.size})`}
+          </button>
+        </div>
+      )}
 
       {saveError && (
         <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
@@ -2511,16 +2564,51 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
           {visibleStores.map((s) => (
-            <div key={s.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, overflow: "hidden" }}>
-              <div onClick={() => setExpanded(expanded === s.id ? null : s.id)} style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</div>
-                  <div style={{ fontSize: 11, color: C.textFaint }}>
-                    Net {s.creditDays} days{s.overdueCount > 0 ? ` · ${s.overdueCount} overdue` : ""}
-                    {s.isComplete && <span style={{ color: C.emerald }}> · Completed</span>}
+            <div key={s.id} style={{ background: C.surface, border: `1px solid ${selectedIds.has(s.id) ? C.rose : C.border}`, borderRadius: 13, overflow: "hidden" }}>
+              <div
+                onClick={() => {
+                  if (bulkMode) {
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(s.id)) next.delete(s.id);
+                      else next.add(s.id);
+                      return next;
+                    });
+                  } else {
+                    setExpanded(expanded === s.id ? null : s.id);
+                  }
+                }}
+                style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", gap: 12 }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                  {bulkMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(s.id)}
+                      onChange={() => {}}
+                      style={{ width: 18, height: 18, flexShrink: 0, accentColor: C.rose, cursor: "pointer" }}
+                    />
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: C.textFaint }}>
+                      Net {s.creditDays} days{s.overdueCount > 0 ? ` · ${s.overdueCount} overdue` : ""}
+                      {s.isComplete && <span style={{ color: C.emerald }}> · Completed</span>}
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                  {!bulkMode && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 999,
+                      background: s.invoicedThisMonth ? C.emeraldBg : C.amberBg,
+                      color: s.invoicedThisMonth ? C.emerald : C.amber,
+                      textTransform: "uppercase", letterSpacing: "0.04em",
+                      border: `1px solid ${s.invoicedThisMonth ? C.emerald : C.amber}30`,
+                    }}>
+                      {s.invoicedThisMonth ? "Invoiced" : "Not yet"}
+                    </span>
+                  )}
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: C.textFaint }}>Outstanding</div>
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: s.outstanding > 0 ? C.rose : C.emerald }}>${s.outstanding.toFixed(2)}</div>
@@ -2528,10 +2616,16 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                 </div>
               </div>
 
-              {expanded === s.id && (
+              {!bulkMode && expanded === s.id && (
                 <div style={{ borderTop: `1px solid ${C.border}`, padding: "12px 16px 16px" }}>
                   {s.notes && (
                     <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 }}>{s.notes}</div>
+                  )}
+                  {s.latestNote && (
+                    <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
+                      <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
+                      {s.latestNote}
+                    </div>
                   )}
                   <div style={{ display: "flex", gap: 16, fontSize: 12, marginBottom: 12, color: C.textDim, flexWrap: "wrap" }}>
                     <button
