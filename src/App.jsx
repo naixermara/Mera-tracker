@@ -2114,7 +2114,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [showNewStore, setShowNewStore] = useState(false);
   const [newStoreForm, setNewStoreForm] = useState({ name: "", creditDays: "30", notes: "" });
   const [showLogInvoice, setShowLogInvoice] = useState(null);
-  const [invoiceForm, setInvoiceForm] = useState({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+  const [invoiceForm, setInvoiceForm] = useState({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" });
   const [showHistory, setShowHistory] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [editingStore, setEditingStore] = useState(null);
@@ -2122,7 +2122,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogStoreId, setQuickLogStoreId] = useState(null);
   const [storeSearchQuery, setStoreSearchQuery] = useState("");
-  const [quickInvoiceForm, setQuickInvoiceForm] = useState({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+  const [quickInvoiceForm, setQuickInvoiceForm] = useState({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [deletingBulk, setDeletingBulk] = useState(false);
   const [editStoreForm, setEditStoreForm] = useState(null);
@@ -2153,6 +2153,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
               amount: Number(inv.amount || 0),
               paid: Number(inv.paid || 0),
               notes: inv.notes || "",
+              plSold: Number(inv.pl_sold || 0),
+              nightSold: Number(inv.night_sold || 0),
+              daySold: Number(inv.day_sold || 0),
             })),
         }));
         setStores(merged);
@@ -2204,6 +2207,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
           amount: parseFloat(form.amount) || 0,
           paid: parseFloat(form.paid) || 0,
           notes: form.notes,
+          pl_sold: parseFloat(form.plSold) || 0,
+          night_sold: parseFloat(form.nightSold) || 0,
+          day_sold: parseFloat(form.daySold) || 0,
           created_by: authUser?.email || "unknown",
         }),
       });
@@ -2221,6 +2227,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                     amount: Number(inserted.amount || 0),
                     paid: Number(inserted.paid || 0),
                     notes: inserted.notes || "",
+                    plSold: Number(inserted.pl_sold || 0),
+                    nightSold: Number(inserted.night_sold || 0),
+                    daySold: Number(inserted.day_sold || 0),
                   },
                 ],
               }
@@ -2307,6 +2316,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
           amount: changes.amount,
           paid: changes.paid,
           notes: changes.notes,
+          pl_sold: changes.plSold,
+          night_sold: changes.nightSold,
+          day_sold: changes.daySold,
         }),
       });
       setStores((prev) =>
@@ -2409,7 +2421,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
             onClick={() => {
               setQuickLogStoreId(null);
               setStoreSearchQuery("");
-              setQuickInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+              setQuickInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" });
               setShowQuickLog(true);
             }}
             className="primarybtn"
@@ -2724,7 +2736,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowLogInvoice(s.id); setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" }); }}
+                      onClick={(e) => { e.stopPropagation(); setShowLogInvoice(s.id); setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" }); }}
                       style={{ flex: 1, background: C.gold, border: "none", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
                     >
                       + Log invoice
@@ -2759,6 +2771,21 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                           <input type="number" step="0.01" value={invoiceForm.paid} onChange={(e) => setInvoiceForm({ ...invoiceForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
                         </div>
                       </div>
+                      <div style={{ fontSize: 9, color: C.textFaint, marginBottom: 4 }}>Units sold</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                          <input type="number" value={invoiceForm.plSold} onChange={(e) => setInvoiceForm({ ...invoiceForm, plSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                          <input type="number" value={invoiceForm.nightSold} onChange={(e) => setInvoiceForm({ ...invoiceForm, nightSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                          <input type="number" value={invoiceForm.daySold} onChange={(e) => setInvoiceForm({ ...invoiceForm, daySold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                      </div>
                       <div style={{ marginBottom: 8 }}>
                         <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
                         <input type="text" value={invoiceForm.notes} onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
@@ -2769,7 +2796,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                             const ok = await logInvoice(s.id, invoiceForm);
                             if (ok) {
                               setShowLogInvoice(null);
-                              setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+                              setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" });
                             }
                           }}
                           style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
@@ -2812,6 +2839,21 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                                   <input type="number" step="0.01" value={editInvoiceForm.paid} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
                                 </div>
                               </div>
+                              <div style={{ fontSize: 9, color: C.textFaint, marginBottom: 4 }}>Units sold</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                                  <input type="number" value={editInvoiceForm.plSold} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, plSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                                  <input type="number" value={editInvoiceForm.nightSold} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, nightSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                                  <input type="number" value={editInvoiceForm.daySold} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, daySold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
                               <div style={{ marginBottom: 8 }}>
                                 <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
                                 <input type="text" value={editInvoiceForm.notes} onChange={(e) => setEditInvoiceForm({ ...editInvoiceForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
@@ -2825,6 +2867,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                                       amount: parseFloat(editInvoiceForm.amount) || 0,
                                       paid: parseFloat(editInvoiceForm.paid) || 0,
                                       notes: editInvoiceForm.notes,
+                                      plSold: parseFloat(editInvoiceForm.plSold) || 0,
+                                      nightSold: parseFloat(editInvoiceForm.nightSold) || 0,
+                                      daySold: parseFloat(editInvoiceForm.daySold) || 0,
                                     });
                                     if (ok) setEditingInvoiceId(null);
                                   }}
@@ -2843,7 +2888,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                             <div
                               style={{ fontSize: 11, color: C.textDim, cursor: "pointer", flex: 1 }}
                               onClick={() => {
-                                setEditInvoiceForm({ invoiceDate: inv.invoiceDate, invoiceNumber: inv.invoiceNumber, amount: inv.amount, paid: inv.paid, notes: inv.notes });
+                                setEditInvoiceForm({ invoiceDate: inv.invoiceDate, invoiceNumber: inv.invoiceNumber, amount: inv.amount, paid: inv.paid, notes: inv.notes, plSold: inv.plSold, nightSold: inv.nightSold, daySold: inv.daySold });
                                 setEditingInvoiceId(inv.id);
                               }}
                             >
@@ -2856,6 +2901,13 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                                 {inv.paid > 0 && <span style={{ color: C.emerald }}> · ${inv.paid.toFixed(2)} paid</span>}
                                 {remaining > 0 && <span style={{ color: isOverdue ? C.rose : C.textDim }}> · ${remaining.toFixed(2)} remaining, due {new Date(due + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}{isOverdue ? " (overdue)" : ""}</span>}
                               </div>
+                              {(inv.plSold > 0 || inv.nightSold > 0 || inv.daySold > 0) && (
+                                <div style={{ marginTop: 2, color: C.textFaint }}>
+                                  {inv.plSold > 0 && <span>PL: {inv.plSold} </span>}
+                                  {inv.nightSold > 0 && <span>Night: {inv.nightSold} </span>}
+                                  {inv.daySold > 0 && <span>Day: {inv.daySold}</span>}
+                                </div>
+                              )}
                               {inv.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{inv.notes}</div>}
                             </div>
                             <button
@@ -2974,7 +3026,25 @@ function CreditTermPage({ authUser, C, sbFetch }) {
               </div>
             </div>
 
-            <div style={{ marginBottom: 20 }}>
+            <div style={{ marginBottom: 6 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Units sold</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint }}>Panty Liner</label>
+                  <input type="number" value={quickInvoiceForm.plSold} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, plSold: e.target.value })} placeholder="0" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint }}>Night</label>
+                  <input type="number" value={quickInvoiceForm.nightSold} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, nightSold: e.target.value })} placeholder="0" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint }}>Day</label>
+                  <input type="number" value={quickInvoiceForm.daySold} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, daySold: e.target.value })} placeholder="0" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20, marginTop: 14 }}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
               <textarea value={quickInvoiceForm.notes} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, notes: e.target.value })} style={{ width: "100%", minHeight: 55, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
             </div>
