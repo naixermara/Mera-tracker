@@ -2119,6 +2119,10 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [editingStore, setEditingStore] = useState(null);
   const [bulkMode, setBulkMode] = useState(false);
+  const [showQuickLog, setShowQuickLog] = useState(false);
+  const [quickLogStoreId, setQuickLogStoreId] = useState(null);
+  const [storeSearchQuery, setStoreSearchQuery] = useState("");
+  const [quickInvoiceForm, setQuickInvoiceForm] = useState({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [deletingBulk, setDeletingBulk] = useState(false);
   const [editStoreForm, setEditStoreForm] = useState(null);
@@ -2189,17 +2193,17 @@ function CreditTermPage({ authUser, C, sbFetch }) {
     }
   }
 
-  async function logInvoice(storeId) {
+  async function logInvoice(storeId, form) {
     try {
       const [inserted] = await sbFetch("credit_invoices", {
         method: "POST",
         body: JSON.stringify({
           store_id: storeId,
-          invoice_date: invoiceForm.invoiceDate,
-          invoice_number: invoiceForm.invoiceNumber,
-          amount: parseFloat(invoiceForm.amount) || 0,
-          paid: parseFloat(invoiceForm.paid) || 0,
-          notes: invoiceForm.notes,
+          invoice_date: form.invoiceDate,
+          invoice_number: form.invoiceNumber,
+          amount: parseFloat(form.amount) || 0,
+          paid: parseFloat(form.paid) || 0,
+          notes: form.notes,
           created_by: authUser?.email || "unknown",
         }),
       });
@@ -2223,11 +2227,11 @@ function CreditTermPage({ authUser, C, sbFetch }) {
             : s
         )
       );
-      setShowLogInvoice(null);
-      setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
       setSaveError(false);
+      return true;
     } catch (e) {
       setSaveError(true);
+      return false;
     }
   }
 
@@ -2402,9 +2406,20 @@ function CreditTermPage({ authUser, C, sbFetch }) {
             ))}
           </select>
           <button
-            onClick={() => setShowNewStore(true)}
+            onClick={() => {
+              setQuickLogStoreId(null);
+              setStoreSearchQuery("");
+              setQuickInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+              setShowQuickLog(true);
+            }}
             className="primarybtn"
             style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={16} /> Log invoice
+          </button>
+          <button
+            onClick={() => setShowNewStore(true)}
+            style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
           >
             <Plus size={16} /> New store
           </button>
@@ -2749,7 +2764,18 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                         <input type="text" value={invoiceForm.notes} onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => logInvoice(s.id)} style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Save</button>
+                        <button
+                          onClick={async () => {
+                            const ok = await logInvoice(s.id, invoiceForm);
+                            if (ok) {
+                              setShowLogInvoice(null);
+                              setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "" });
+                            }
+                          }}
+                          style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                        >
+                          Save
+                        </button>
                         <button onClick={() => setShowLogInvoice(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
                       </div>
                     </div>
@@ -2872,6 +2898,96 @@ function CreditTermPage({ authUser, C, sbFetch }) {
             </div>
             <button onClick={addStore} disabled={!newStoreForm.name.trim()} style={{ width: "100%", background: newStoreForm.name.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: newStoreForm.name.trim() ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>
               Add store
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showQuickLog && (
+        <div onClick={() => setShowQuickLog(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>Log invoice</h2>
+              <button onClick={() => setShowQuickLog(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Store</label>
+              {quickLogStoreId ? (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: "10px 12px" }}>
+                  <span style={{ fontSize: 14, color: C.text }}>{enrichedStores.find((s) => s.id === quickLogStoreId)?.name}</span>
+                  <button type="button" onClick={() => { setQuickLogStoreId(null); setStoreSearchQuery(""); }} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Change</button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={storeSearchQuery}
+                    onChange={(e) => setStoreSearchQuery(e.target.value)}
+                    placeholder="Type to search…"
+                    style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }}
+                  />
+                  {storeSearchQuery.trim() && (
+                    <div style={{ marginTop: 6, maxHeight: 160, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                      {enrichedStores
+                        .filter((s) => s.name.toLowerCase().includes(storeSearchQuery.toLowerCase()))
+                        .slice(0, 8)
+                        .map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => { setQuickLogStoreId(s.id); setStoreSearchQuery(""); }}
+                            style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${C.border}`, padding: "9px 12px", fontSize: 13, color: C.text, cursor: "pointer" }}
+                          >
+                            {s.name}
+                          </button>
+                        ))}
+                      {enrichedStores.filter((s) => s.name.toLowerCase().includes(storeSearchQuery.toLowerCase())).length === 0 && (
+                        <div style={{ padding: "9px 12px", fontSize: 13, color: C.textFaint }}>No matching store — add it via "New store" first.</div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Invoice date</label>
+                <input type="date" value={quickInvoiceForm.invoiceDate} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, invoiceDate: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Invoice number</label>
+                <input type="text" value={quickInvoiceForm.invoiceNumber} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, invoiceNumber: e.target.value })} placeholder="Optional" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Amount $</label>
+                <input type="number" step="0.01" value={quickInvoiceForm.amount} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, amount: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Paid $ (if any now)</label>
+                <input type="number" step="0.01" value={quickInvoiceForm.paid} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, paid: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
+              <textarea value={quickInvoiceForm.notes} onChange={(e) => setQuickInvoiceForm({ ...quickInvoiceForm, notes: e.target.value })} style={{ width: "100%", minHeight: 55, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+
+            <button
+              disabled={!quickLogStoreId}
+              onClick={async () => {
+                const ok = await logInvoice(quickLogStoreId, quickInvoiceForm);
+                if (ok) setShowQuickLog(false);
+              }}
+              style={{ width: "100%", background: quickLogStoreId ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: quickLogStoreId ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700, cursor: quickLogStoreId ? "pointer" : "default" }}
+            >
+              Save invoice
             </button>
           </div>
         </div>
