@@ -2159,11 +2159,12 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [editStoreForm, setEditStoreForm] = useState(null);
   const [editingInvoiceId, setEditingInvoiceId] = useState(null);
   const [showBilledBreakdown, setShowBilledBreakdown] = useState(false);
+  const [showCollectedBreakdown, setShowCollectedBreakdown] = useState(false);
   const [showMonthOwedBreakdown, setShowMonthOwedBreakdown] = useState(false);
   const [showOutstandingBreakdown, setShowOutstandingBreakdown] = useState(false);
   const [editInvoiceForm, setEditInvoiceForm] = useState(null);
   const [showLogPayment, setShowLogPayment] = useState(null);
-  const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
+  const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), paymentAmount: "", newSaleAmount: "", invoiceNumber: "", plSold: "", nightSold: "", daySold: "", notes: "" });
   const [showPayHistory, setShowPayHistory] = useState(null);
   const [editingPaymentId, setEditingPaymentId] = useState(null);
   const [editPaymentForm, setEditPaymentForm] = useState(null);
@@ -2317,6 +2318,42 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       );
       setSaveError(false);
       return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  // Combined "Log entry" — optionally logs a new sale (invoice) and/or a payment in one action.
+  // Filling in newSaleAmount records what they bought; filling in paymentAmount records what
+  // they paid toward their balance. Either, both, or neither field can be used per entry.
+  async function logEntry(storeId, form) {
+    try {
+      const hasNewSale = parseFloat(form.newSaleAmount) > 0 || parseFloat(form.plSold) > 0 || parseFloat(form.nightSold) > 0 || parseFloat(form.daySold) > 0;
+      const hasPayment = parseFloat(form.paymentAmount) > 0;
+      let ok = true;
+      if (hasNewSale) {
+        const invoiceOk = await logInvoice(storeId, {
+          invoiceDate: form.paymentDate,
+          invoiceNumber: form.invoiceNumber,
+          amount: form.newSaleAmount,
+          paid: 0,
+          notes: form.notes,
+          plSold: form.plSold,
+          nightSold: form.nightSold,
+          daySold: form.daySold,
+        });
+        ok = ok && invoiceOk;
+      }
+      if (hasPayment) {
+        const paymentOk = await logPayment(storeId, {
+          paymentDate: form.paymentDate,
+          amount: form.paymentAmount,
+          notes: hasNewSale ? "" : form.notes,
+        });
+        ok = ok && paymentOk;
+      }
+      return ok;
     } catch (e) {
       setSaveError(true);
       return false;
@@ -2503,12 +2540,17 @@ function CreditTermPage({ authUser, C, sbFetch }) {
 
   const totals = useMemo(() => {
     const monthBilled = enrichedStores.reduce((a, s) => a + s.monthBilled, 0);
+    const monthCollected = enrichedStores.reduce((a, s) => a + s.monthCollected, 0);
     const monthOwed = enrichedStores.reduce((a, s) => a + s.monthOwed, 0);
     const outstanding = enrichedStores.reduce((a, s) => a + s.outstanding, 0);
     const overdueCount = enrichedStores.reduce((a, s) => a + s.overdueCount, 0);
     const activeStores = visibleStores.length;
-    return { monthBilled, monthOwed, outstanding, overdueCount, activeStores };
+    return { monthBilled, monthCollected, monthOwed, outstanding, overdueCount, activeStores };
   }, [enrichedStores, visibleStores]);
+
+  const collectedBreakdown = useMemo(() => {
+    return enrichedStores.filter((s) => s.monthCollected > 0).sort((a, b) => b.monthCollected - a.monthCollected);
+  }, [enrichedStores]);
 
   const owedBreakdown = useMemo(() => {
     return enrichedStores.filter((s) => s.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding);
@@ -2609,6 +2651,15 @@ function CreditTermPage({ authUser, C, sbFetch }) {
         </button>
         <button
           type="button"
+          onClick={() => setShowCollectedBreakdown(!showCollectedBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showCollectedBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Collected — {monthLabel(selectedMonth)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.monthCollected.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
+        </button>
+        <button
+          type="button"
           onClick={() => setShowMonthOwedBreakdown(!showMonthOwedBreakdown)}
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showMonthOwedBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
@@ -2658,6 +2709,28 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                   <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>${inv.amount.toFixed(2)}</span>
                 </button>
               ))}
+          </div>
+        </div>
+      )}
+
+      {showCollectedBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Collected — {monthLabel(selectedMonth)} — by store
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {collectedBreakdown.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => { setExpanded(s.id); setShowCollectedBreakdown(false); }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${s.monthCollected.toFixed(2)}</span>
+              </button>
+            ))}
+            {collectedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing collected this month.</div>}
           </div>
         </div>
       )}
@@ -2861,10 +2934,18 @@ function CreditTermPage({ authUser, C, sbFetch }) {
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowLogPayment(s.id); setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" }); }}
-                      style={{ flex: 1, background: "none", border: `1px solid ${C.gold}`, borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: C.goldBright, cursor: "pointer" }}
+                      onClick={(e) => { e.stopPropagation(); setShowLogPayment(s.id); setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), paymentAmount: "", newSaleAmount: "", invoiceNumber: "", plSold: "", nightSold: "", daySold: "", notes: "" }); }}
+                      style={{ flex: 1, background: C.gold, border: "none", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
                     >
-                      + Log payment
+                      + Log entry
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(showHistory === s.id ? null : s.id); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
+                    >
+                      {showHistory === s.id ? "Hide" : "Show"} invoices ({s.invoices.length})
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowPayHistory(showPayHistory === s.id ? null : s.id); }}
@@ -2876,27 +2957,54 @@ function CreditTermPage({ authUser, C, sbFetch }) {
 
                   {showLogPayment === s.id && (
                     <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Date</label>
+                        <input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+
+                      <div style={{ fontSize: 9, color: C.gold, marginBottom: 4, fontWeight: 700, textTransform: "uppercase" }}>New sale (optional)</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
                         <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Payment date</label>
-                          <input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Amount billed $</label>
+                          <input type="number" step="0.01" value={paymentForm.newSaleAmount} onChange={(e) => setPaymentForm({ ...paymentForm, newSaleAmount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
                         </div>
                         <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
-                          <input type="number" step="0.01" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Invoice number</label>
+                          <input type="text" value={paymentForm.invoiceNumber} onChange={(e) => setPaymentForm({ ...paymentForm, invoiceNumber: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
                         </div>
                       </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                          <input type="number" value={paymentForm.plSold} onChange={(e) => setPaymentForm({ ...paymentForm, plSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                          <input type="number" value={paymentForm.nightSold} onChange={(e) => setPaymentForm({ ...paymentForm, nightSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                          <input type="number" value={paymentForm.daySold} onChange={(e) => setPaymentForm({ ...paymentForm, daySold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: 9, color: C.emerald, marginBottom: 4, fontWeight: 700, textTransform: "uppercase" }}>Payment received (optional)</div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Amount paid $</label>
+                        <input type="number" step="0.01" value={paymentForm.paymentAmount} onChange={(e) => setPaymentForm({ ...paymentForm, paymentAmount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                      </div>
+
                       <div style={{ marginBottom: 8 }}>
                         <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
-                        <input type="text" value={paymentForm.notes} onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="e.g. covers invoices from June" />
+                        <input type="text" value={paymentForm.notes} onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button
                           onClick={async () => {
-                            const ok = await logPayment(s.id, paymentForm);
+                            const ok = await logEntry(s.id, paymentForm);
                             if (ok) {
                               setShowLogPayment(null);
-                              setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
+                              setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), paymentAmount: "", newSaleAmount: "", invoiceNumber: "", plSold: "", nightSold: "", daySold: "", notes: "" });
                             }
                           }}
                           style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
@@ -2972,80 +3080,6 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                         );
                       })}
                       {s.payments.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No standalone payments logged yet.</div>}
-                    </div>
-                  )}
-
-                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setShowLogInvoice(s.id); setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" }); }}
-                      style={{ flex: 1, background: C.gold, border: "none", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
-                    >
-                      + Log invoice
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setShowHistory(showHistory === s.id ? null : s.id); }}
-                      style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
-                    >
-                      {showHistory === s.id ? "Hide" : "Show"} invoices ({s.invoices.length})
-                    </button>
-                  </div>
-
-                  {showLogInvoice === s.id && (
-                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Invoice date</label>
-                          <input type="date" value={invoiceForm.invoiceDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Invoice number</label>
-                          <input type="text" value={invoiceForm.invoiceNumber} onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceNumber: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
-                        </div>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
-                          <input type="number" step="0.01" value={invoiceForm.amount} onChange={(e) => setInvoiceForm({ ...invoiceForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Paid $ (if any now)</label>
-                          <input type="number" step="0.01" value={invoiceForm.paid} onChange={(e) => setInvoiceForm({ ...invoiceForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 9, color: C.textFaint, marginBottom: 4 }}>Units sold</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
-                          <input type="number" value={invoiceForm.plSold} onChange={(e) => setInvoiceForm({ ...invoiceForm, plSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
-                          <input type="number" value={invoiceForm.nightSold} onChange={(e) => setInvoiceForm({ ...invoiceForm, nightSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
-                          <input type="number" value={invoiceForm.daySold} onChange={(e) => setInvoiceForm({ ...invoiceForm, daySold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
-                        </div>
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
-                        <input type="text" value={invoiceForm.notes} onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
-                      </div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button
-                          onClick={async () => {
-                            const ok = await logInvoice(s.id, invoiceForm);
-                            if (ok) {
-                              setShowLogInvoice(null);
-                              setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" });
-                            }
-                          }}
-                          style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
-                        >
-                          Save
-                        </button>
-                        <button onClick={() => setShowLogInvoice(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
-                      </div>
                     </div>
                   )}
 
@@ -3202,7 +3236,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
         <div onClick={() => setShowQuickLog(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>Log invoice</h2>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>Log new sale</h2>
               <button onClick={() => setShowQuickLog(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
             </div>
 
