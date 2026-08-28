@@ -2534,7 +2534,12 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const visibleStores = useMemo(() => {
     return enrichedStores.filter((s) => {
       if (!s.isComplete) return true;
-      return s.completionMonth === selectedMonth;
+      if (s.completionMonth === selectedMonth) return true;
+      // Also keep a completed store visible if it had any real activity (billed or collected)
+      // in the selected month — its completion month is based on the last invoice date, which
+      // can differ from when a payment actually posted.
+      if (s.monthBilled > 0 || s.monthCollected > 0) return true;
+      return false;
     });
   }, [enrichedStores, selectedMonth]);
 
@@ -3712,7 +3717,9 @@ function BigCoPage({ authUser, C, sbFetch }) {
   const visibleStores = useMemo(() => {
     return enrichedStores.filter((s) => {
       if (!s.isComplete) return true;
-      return s.completionMonth === selectedMonth;
+      if (s.completionMonth === selectedMonth) return true;
+      if (s.monthBilled > 0 || s.monthCollected > 0) return true;
+      return false;
     });
   }, [enrichedStores, selectedMonth]);
 
