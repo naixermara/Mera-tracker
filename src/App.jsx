@@ -813,7 +813,7 @@ export default function MeraConsignmentApp() {
               <Sparkles size={17} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
-              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : page === "bigco" ? "Big Company" : "Consignment Operations"}
+              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : page === "bigco" ? "Corporate Accounts" : "Consignment Operations"}
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
@@ -938,7 +938,7 @@ export default function MeraConsignmentApp() {
               borderBottom: `2px solid ${consignmentSubView === "bigco" ? C.gold : "transparent"}`,
             }}
           >
-            Big Company
+            Corporate Accounts
           </button>
         </div>
 
@@ -2162,13 +2162,19 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [showMonthOwedBreakdown, setShowMonthOwedBreakdown] = useState(false);
   const [showOutstandingBreakdown, setShowOutstandingBreakdown] = useState(false);
   const [editInvoiceForm, setEditInvoiceForm] = useState(null);
+  const [showLogPayment, setShowLogPayment] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
+  const [showPayHistory, setShowPayHistory] = useState(null);
+  const [editingPaymentId, setEditingPaymentId] = useState(null);
+  const [editPaymentForm, setEditPaymentForm] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [storeRows, invoiceRows] = await Promise.all([
+        const [storeRows, invoiceRows, paymentRows] = await Promise.all([
           sbFetch("credit_stores?select=*&order=created_at.asc"),
           sbFetch("credit_invoices?select=*&order=invoice_date.asc"),
+          sbFetch("credit_payments?select=*&order=payment_date.asc"),
         ]);
         const merged = storeRows.map((s) => ({
           id: s.id,
@@ -2188,6 +2194,9 @@ function CreditTermPage({ authUser, C, sbFetch }) {
               nightSold: Number(inv.night_sold || 0),
               daySold: Number(inv.day_sold || 0),
             })),
+          payments: paymentRows
+            .filter((p) => p.store_id === s.id)
+            .map((p) => ({ id: p.id, paymentDate: p.payment_date, amount: Number(p.amount || 0), notes: p.notes || "" })),
         }));
         setStores(merged);
       } catch (e) {
@@ -2287,6 +2296,70 @@ function CreditTermPage({ authUser, C, sbFetch }) {
     }
   }
 
+  async function logPayment(storeId, form) {
+    try {
+      const [inserted] = await sbFetch("credit_payments", {
+        method: "POST",
+        body: JSON.stringify({
+          store_id: storeId,
+          payment_date: form.paymentDate,
+          amount: parseFloat(form.amount) || 0,
+          notes: form.notes,
+          created_by: authUser?.email || "unknown",
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) =>
+          s.id === storeId
+            ? { ...s, payments: [...s.payments, { id: inserted.id, paymentDate: inserted.payment_date, amount: Number(inserted.amount || 0), notes: inserted.notes || "" }] }
+            : s
+        )
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function updatePayment(storeId, paymentId, changes) {
+    try {
+      await sbFetch(`credit_payments?id=eq.${paymentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          payment_date: changes.paymentDate,
+          amount: changes.amount,
+          notes: changes.notes,
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) =>
+          s.id === storeId
+            ? { ...s, payments: s.payments.map((p) => (p.id === paymentId ? { ...p, ...changes } : p)) }
+            : s
+        )
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function deletePayment(storeId, paymentId) {
+    try {
+      await sbFetch(`credit_payments?id=eq.${paymentId}`, { method: "DELETE" });
+      setStores((prev) =>
+        prev.map((s) => (s.id === storeId ? { ...s, payments: s.payments.filter((p) => p.id !== paymentId) } : s))
+      );
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
   async function updateCreditStore(storeId, changes) {
     try {
       await sbFetch(`credit_stores?id=eq.${storeId}`, {
@@ -2378,14 +2451,35 @@ function CreditTermPage({ authUser, C, sbFetch }) {
     const today = new Date().toISOString().slice(0, 10);
     return stores.map((s) => {
       const monthInvoices = s.invoices.filter((inv) => monthKey(inv.invoiceDate) === selectedMonth);
-      const monthBilled = monthInvoices.reduce((a, inv) => a + inv.amount, 0);
-      const monthCollected = monthInvoices.reduce((a, inv) => a + inv.paid, 0);
-      const monthOwed = Math.max(0, monthBilled - monthCollected);
+      const monthBilledFromInvoices = monthInvoices.reduce((a, inv) => a + inv.amount, 0);
+      const monthCollectedFromInvoices = monthInvoices.reduce((a, inv) => a + inv.paid, 0);
+      const monthStandalonePayments = s.payments.filter((p) => monthKey(p.paymentDate) === selectedMonth);
+      const monthCollected = monthCollectedFromInvoices + monthStandalonePayments.reduce((a, p) => a + p.amount, 0);
+      const monthBilled = monthBilledFromInvoices;
       const allTimeBilled = s.invoices.reduce((a, inv) => a + inv.amount, 0);
-      const allTimeCollected = s.invoices.reduce((a, inv) => a + inv.paid, 0);
+      const allTimeCollectedFromInvoices = s.invoices.reduce((a, inv) => a + inv.paid, 0);
+      const allTimeStandalonePayments = s.payments.reduce((a, p) => a + p.amount, 0);
+      const allTimeCollected = allTimeCollectedFromInvoices + allTimeStandalonePayments;
       const outstanding = Math.max(0, allTimeBilled - allTimeCollected);
+      // Apply standalone (not-tied-to-one-invoice) payments against the oldest unpaid invoices
+      // first, so overdue status and "remaining per invoice" still reflect reality once a store
+      // pays down its balance without you picking a specific invoice to credit.
+      let paymentPool = allTimeStandalonePayments;
+      const invoicesByDate = [...s.invoices].sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
+      const invoiceEffectivePaid = {};
+      for (const inv of invoicesByDate) {
+        let effective = inv.paid;
+        const owedOnThis = inv.amount - effective;
+        if (owedOnThis > 0 && paymentPool > 0) {
+          const applied = Math.min(owedOnThis, paymentPool);
+          effective += applied;
+          paymentPool -= applied;
+        }
+        invoiceEffectivePaid[inv.id] = effective;
+      }
+      const monthOwed = Math.max(0, monthBilled - (monthInvoices.reduce((a, inv) => a + (invoiceEffectivePaid[inv.id] ?? inv.paid), 0)));
       const overdueInvoices = s.invoices.filter((inv) => {
-        const remaining = inv.amount - inv.paid;
+        const remaining = inv.amount - (invoiceEffectivePaid[inv.id] ?? inv.paid);
         return remaining > 0 && dueDate(inv.invoiceDate, s.creditDays) < today;
       });
       // Complete = every invoice fully paid, with at least one invoice logged. Once complete, the
@@ -2396,7 +2490,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       const invoicedThisMonth = monthInvoices.length > 0;
       const notedInvoices = [...s.invoices].filter((inv) => inv.notes && inv.notes.trim()).sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate));
       const latestNote = notedInvoices.length ? notedInvoices[notedInvoices.length - 1].notes : "";
-      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length, isComplete, completionMonth, invoicedThisMonth, latestNote };
+      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, overdueCount: overdueInvoices.length, isComplete, completionMonth, invoicedThisMonth, latestNote, invoiceEffectivePaid };
     });
   }, [stores, selectedMonth]);
 
@@ -2765,6 +2859,122 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                     </div>
                   )}
 
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowLogPayment(s.id); setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" }); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.gold}`, borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: C.goldBright, cursor: "pointer" }}
+                    >
+                      + Log payment
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowPayHistory(showPayHistory === s.id ? null : s.id); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
+                    >
+                      {showPayHistory === s.id ? "Hide" : "Show"} payments ({s.payments.length})
+                    </button>
+                  </div>
+
+                  {showLogPayment === s.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Payment date</label>
+                          <input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                          <input type="number" step="0.01" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={paymentForm.notes} onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="e.g. covers invoices from June" />
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          onClick={async () => {
+                            const ok = await logPayment(s.id, paymentForm);
+                            if (ok) {
+                              setShowLogPayment(null);
+                              setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
+                            }
+                          }}
+                          style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setShowLogPayment(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {showPayHistory === s.id && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                      {[...s.payments].sort((a, b) => b.paymentDate.localeCompare(a.paymentDate)).map((p) => {
+                        if (editingPaymentId === p.id) {
+                          return (
+                            <div key={p.id} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: 10 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Date</label>
+                                  <input type="date" value={editPaymentForm.paymentDate} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, paymentDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                                  <input type="number" step="0.01" value={editPaymentForm.amount} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                                <input type="text" value={editPaymentForm.notes} onChange={(e) => setEditPaymentForm({ ...editPaymentForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                              </div>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                  onClick={async () => {
+                                    const ok = await updatePayment(s.id, p.id, {
+                                      paymentDate: editPaymentForm.paymentDate,
+                                      amount: parseFloat(editPaymentForm.amount) || 0,
+                                      notes: editPaymentForm.notes,
+                                    });
+                                    if (ok) setEditingPaymentId(null);
+                                  }}
+                                  style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                                >
+                                  Save
+                                </button>
+                                <button onClick={() => setEditingPaymentId(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={p.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                            <div
+                              style={{ fontSize: 11, color: C.textDim, cursor: "pointer", flex: 1 }}
+                              onClick={() => {
+                                setEditPaymentForm({ paymentDate: p.paymentDate, amount: p.amount, notes: p.notes });
+                                setEditingPaymentId(p.id);
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, color: C.text }}>
+                                {new Date(p.paymentDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                                <span style={{ color: C.emerald }}> · ${p.amount.toFixed(2)}</span>
+                              </div>
+                              {p.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{p.notes}</div>}
+                            </div>
+                            <button
+                              onClick={() => { if (window.confirm("Delete this payment entry?")) deletePayment(s.id, p.id); }}
+                              style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {s.payments.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No standalone payments logged yet.</div>}
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowLogInvoice(s.id); setInvoiceForm({ invoiceDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", amount: "", paid: "", notes: "", plSold: "", nightSold: "", daySold: "" }); }}
@@ -2843,9 +3053,10 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {[...s.invoices].sort((a, b) => b.invoiceDate.localeCompare(a.invoiceDate)).map((inv) => {
                         const remaining = inv.amount - inv.paid;
+                        const effectiveRemaining = inv.amount - (s.invoiceEffectivePaid?.[inv.id] ?? inv.paid);
                         const due = dueDate(inv.invoiceDate, s.creditDays);
                         const today = new Date().toISOString().slice(0, 10);
-                        const isOverdue = remaining > 0 && due < today;
+                        const isOverdue = effectiveRemaining > 0 && due < today;
 
                         if (editingInvoiceId === inv.id) {
                           return (
@@ -2930,7 +3141,8 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                               <div style={{ marginTop: 2 }}>
                                 <span>${inv.amount.toFixed(2)} billed</span>
                                 {inv.paid > 0 && <span style={{ color: C.emerald }}> · ${inv.paid.toFixed(2)} paid</span>}
-                                {remaining > 0 && <span style={{ color: isOverdue ? C.rose : C.textDim }}> · ${remaining.toFixed(2)} remaining, due {new Date(due + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}{isOverdue ? " (overdue)" : ""}</span>}
+                                {remaining > 0 && effectiveRemaining > 0 && <span style={{ color: isOverdue ? C.rose : C.textDim }}> · ${effectiveRemaining.toFixed(2)} remaining, due {new Date(due + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}{isOverdue ? " (overdue)" : ""}</span>}
+                                {remaining > 0 && effectiveRemaining === 0 && <span style={{ color: C.emerald }}> · covered by a separate payment</span>}
                               </div>
                               {(inv.plSold > 0 || inv.nightSold > 0 || inv.daySold > 0) && (
                                 <div style={{ marginTop: 2, color: C.textFaint }}>
@@ -3497,8 +3709,8 @@ function BigCoPage({ authUser, C, sbFetch }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Big Company</h2>
-          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Track sales reports and payments for big company stores</div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Corporate Accounts</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Track sales reports and payments for corporate account stores</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <select
@@ -3674,7 +3886,7 @@ function BigCoPage({ authUser, C, sbFetch }) {
         <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
       ) : visibleStores.length === 0 ? (
         <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
-          <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No big company stores yet</p>
+          <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No corporate account stores yet</p>
           <p style={{ fontSize: 13 }}>Tap "New store" to add your first one.</p>
         </div>
       ) : (
@@ -4011,7 +4223,7 @@ function BigCoPage({ authUser, C, sbFetch }) {
         <div onClick={() => setShowNewStore(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New big company store</h2>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New corporate account</h2>
               <button onClick={() => setShowNewStore(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
             </div>
             <div style={{ marginBottom: 14 }}>
