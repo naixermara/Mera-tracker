@@ -154,6 +154,7 @@ export default function MeraConsignmentApp() {
   const [authLoading, setAuthLoading] = useState(false);
 
   const [page, setPage] = useState("consignment");
+  const [consignmentSubView, setConsignmentSubView] = useState("regular");
   const [stores, setStores] = useState([]);
   const [salespeople, setSalespeople] = useState([]);
   const [visits, setVisits] = useState(null);
@@ -907,17 +908,6 @@ export default function MeraConsignmentApp() {
           >
             Credit Term
           </button>
-          <button
-            onClick={() => setPage("bigco")}
-            style={{
-              background: page === "bigco" ? C.surface : "none",
-              border: `1px solid ${page === "bigco" ? C.gold : C.border}`,
-              color: page === "bigco" ? C.goldBright : C.textFaint,
-              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-            }}
-          >
-            Big Company
-          </button>
         </div>
 
         {page === "overview" ? (
@@ -926,7 +916,33 @@ export default function MeraConsignmentApp() {
           <KolPage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : page === "credit" ? (
           <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} />
-        ) : page === "bigco" ? (
+        ) : (
+        <>
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+          <button
+            onClick={() => setConsignmentSubView("regular")}
+            style={{
+              background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              color: consignmentSubView === "regular" ? C.gold : C.textFaint,
+              borderBottom: `2px solid ${consignmentSubView === "regular" ? C.gold : "transparent"}`,
+            }}
+          >
+            Regular stores
+          </button>
+          <button
+            onClick={() => setConsignmentSubView("bigco")}
+            style={{
+              background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginLeft: 14,
+              color: consignmentSubView === "bigco" ? C.gold : C.textFaint,
+              borderBottom: `2px solid ${consignmentSubView === "bigco" ? C.gold : "transparent"}`,
+            }}
+          >
+            Big Company
+          </button>
+        </div>
+
+        {consignmentSubView === "bigco" ? (
           <BigCoPage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : (
         <>
@@ -1404,6 +1420,8 @@ export default function MeraConsignmentApp() {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
       </>
       )}
