@@ -812,7 +812,7 @@ export default function MeraConsignmentApp() {
               <Sparkles size={17} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
-              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : "Consignment Operations"}
+              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : page === "bigco" ? "Big Company" : "Consignment Operations"}
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
@@ -907,6 +907,17 @@ export default function MeraConsignmentApp() {
           >
             Credit Term
           </button>
+          <button
+            onClick={() => setPage("bigco")}
+            style={{
+              background: page === "bigco" ? C.surface : "none",
+              border: `1px solid ${page === "bigco" ? C.gold : C.border}`,
+              color: page === "bigco" ? C.goldBright : C.textFaint,
+              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Big Company
+          </button>
         </div>
 
         {page === "overview" ? (
@@ -915,6 +926,8 @@ export default function MeraConsignmentApp() {
           <KolPage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : page === "credit" ? (
           <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} />
+        ) : page === "bigco" ? (
+          <BigCoPage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : (
         <>
 
@@ -3189,6 +3202,921 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
             </button>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+function BigCoPage({ authUser, C, sbFetch }) {
+  const [stores, setStores] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+  const [showNewStore, setShowNewStore] = useState(false);
+  const [newStoreForm, setNewStoreForm] = useState({ name: "", notes: "" });
+  const [showLogReport, setShowLogReport] = useState(null);
+  const [reportForm, setReportForm] = useState({ reportDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", plSold: "", nightSold: "", daySold: "", amount: "", paid: "", notes: "" });
+  const [showHistory, setShowHistory] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [editingStore, setEditingStore] = useState(null);
+  const [editStoreForm, setEditStoreForm] = useState(null);
+  const [editingReportId, setEditingReportId] = useState(null);
+  const [editReportForm, setEditReportForm] = useState(null);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [deletingBulk, setDeletingBulk] = useState(false);
+  const [showQuickLog, setShowQuickLog] = useState(false);
+  const [quickLogStoreId, setQuickLogStoreId] = useState(null);
+  const [storeSearchQuery, setStoreSearchQuery] = useState("");
+  const [quickReportForm, setQuickReportForm] = useState({ reportDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", plSold: "", nightSold: "", daySold: "", amount: "", paid: "", notes: "" });
+  const [showBilledBreakdown, setShowBilledBreakdown] = useState(false);
+  const [showMonthOwedBreakdown, setShowMonthOwedBreakdown] = useState(false);
+  const [showOutstandingBreakdown, setShowOutstandingBreakdown] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [storeRows, reportRows] = await Promise.all([
+          sbFetch("bigco_stores?select=*&order=created_at.asc"),
+          sbFetch("bigco_reports?select=*&order=report_date.asc"),
+        ]);
+        const merged = storeRows.map((s) => ({
+          id: s.id,
+          name: s.name,
+          notes: s.notes || "",
+          reports: reportRows
+            .filter((r) => r.store_id === s.id)
+            .map((r) => ({
+              id: r.id,
+              reportDate: r.report_date,
+              invoiceNumber: r.invoice_number || "",
+              plSold: Number(r.pl_sold || 0),
+              nightSold: Number(r.night_sold || 0),
+              daySold: Number(r.day_sold || 0),
+              amount: Number(r.amount || 0),
+              paid: Number(r.paid || 0),
+              notes: r.notes || "",
+            })),
+        }));
+        setStores(merged);
+      } catch (e) {
+        setSaveError(true);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function addStore() {
+    if (!newStoreForm.name.trim()) return;
+    try {
+      const [inserted] = await sbFetch("bigco_stores", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newStoreForm.name.trim(),
+          notes: newStoreForm.notes,
+        }),
+      });
+      setStores((prev) => [
+        ...(prev || []),
+        { id: inserted.id, name: inserted.name, notes: inserted.notes || "", reports: [] },
+      ]);
+      setShowNewStore(false);
+      setNewStoreForm({ name: "", notes: "" });
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function updateBigCoStore(storeId, changes) {
+    try {
+      await sbFetch(`bigco_stores?id=eq.${storeId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: changes.name, notes: changes.notes }),
+      });
+      setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, ...changes } : s)));
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function deleteBigCoStore(storeId) {
+    try {
+      await sbFetch(`bigco_stores?id=eq.${storeId}`, { method: "DELETE" });
+      setStores((prev) => prev.filter((s) => s.id !== storeId));
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function deleteMultipleBigCoStores(ids) {
+    setDeletingBulk(true);
+    try {
+      for (const id of ids) {
+        await sbFetch(`bigco_stores?id=eq.${id}`, { method: "DELETE" });
+      }
+      setStores((prev) => prev.filter((s) => !ids.includes(s.id)));
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    } finally {
+      setDeletingBulk(false);
+      setSelectedIds(new Set());
+      setBulkMode(false);
+    }
+  }
+
+  async function logReport(storeId, form) {
+    try {
+      const [inserted] = await sbFetch("bigco_reports", {
+        method: "POST",
+        body: JSON.stringify({
+          store_id: storeId,
+          report_date: form.reportDate,
+          invoice_number: form.invoiceNumber,
+          pl_sold: parseFloat(form.plSold) || 0,
+          night_sold: parseFloat(form.nightSold) || 0,
+          day_sold: parseFloat(form.daySold) || 0,
+          amount: parseFloat(form.amount) || 0,
+          paid: parseFloat(form.paid) || 0,
+          notes: form.notes,
+          created_by: authUser?.email || "unknown",
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) =>
+          s.id === storeId
+            ? {
+                ...s,
+                reports: [
+                  ...s.reports,
+                  {
+                    id: inserted.id,
+                    reportDate: inserted.report_date,
+                    invoiceNumber: inserted.invoice_number || "",
+                    plSold: Number(inserted.pl_sold || 0),
+                    nightSold: Number(inserted.night_sold || 0),
+                    daySold: Number(inserted.day_sold || 0),
+                    amount: Number(inserted.amount || 0),
+                    paid: Number(inserted.paid || 0),
+                    notes: inserted.notes || "",
+                  },
+                ],
+              }
+            : s
+        )
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function updateReport(storeId, reportId, changes) {
+    try {
+      await sbFetch(`bigco_reports?id=eq.${reportId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          report_date: changes.reportDate,
+          invoice_number: changes.invoiceNumber,
+          pl_sold: changes.plSold,
+          night_sold: changes.nightSold,
+          day_sold: changes.daySold,
+          amount: changes.amount,
+          paid: changes.paid,
+          notes: changes.notes,
+        }),
+      });
+      setStores((prev) =>
+        prev.map((s) =>
+          s.id === storeId
+            ? { ...s, reports: s.reports.map((r) => (r.id === reportId ? { ...r, ...changes } : r)) }
+            : s
+        )
+      );
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function deleteReport(storeId, reportId) {
+    try {
+      await sbFetch(`bigco_reports?id=eq.${reportId}`, { method: "DELETE" });
+      setStores((prev) =>
+        prev.map((s) => (s.id === storeId ? { ...s, reports: s.reports.filter((r) => r.id !== reportId) } : s))
+      );
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  const enrichedStores = useMemo(() => {
+    if (!stores) return [];
+    return stores.map((s) => {
+      const monthReports = s.reports.filter((r) => monthKey(r.reportDate) === selectedMonth);
+      const monthBilled = monthReports.reduce((a, r) => a + r.amount, 0);
+      const monthCollected = monthReports.reduce((a, r) => a + r.paid, 0);
+      const monthOwed = Math.max(0, monthBilled - monthCollected);
+      const allTimeBilled = s.reports.reduce((a, r) => a + r.amount, 0);
+      const allTimeCollected = s.reports.reduce((a, r) => a + r.paid, 0);
+      const outstanding = Math.max(0, allTimeBilled - allTimeCollected);
+      // Complete = every report fully paid, with at least one report logged. Once complete, the
+      // store "belongs" to whichever month its last report was dated, so it's still findable there.
+      const isComplete = s.reports.length > 0 && outstanding === 0;
+      const lastReportDate = s.reports.length ? [...s.reports].map((r) => r.reportDate).sort().slice(-1)[0] : null;
+      const completionMonth = lastReportDate ? monthKey(lastReportDate) : null;
+      const reportedThisMonth = monthReports.length > 0;
+      const notedReports = [...s.reports].filter((r) => r.notes && r.notes.trim()).sort((a, b) => a.reportDate.localeCompare(b.reportDate));
+      const latestNote = notedReports.length ? notedReports[notedReports.length - 1].notes : "";
+      return { ...s, monthBilled, monthCollected, monthOwed, allTimeBilled, allTimeCollected, outstanding, isComplete, completionMonth, reportedThisMonth, latestNote };
+    });
+  }, [stores, selectedMonth]);
+
+  const visibleStores = useMemo(() => {
+    return enrichedStores.filter((s) => {
+      if (!s.isComplete) return true;
+      return s.completionMonth === selectedMonth;
+    });
+  }, [enrichedStores, selectedMonth]);
+
+  const totals = useMemo(() => {
+    const monthBilled = enrichedStores.reduce((a, s) => a + s.monthBilled, 0);
+    const monthOwed = enrichedStores.reduce((a, s) => a + s.monthOwed, 0);
+    const outstanding = enrichedStores.reduce((a, s) => a + s.outstanding, 0);
+    const activeStores = visibleStores.length;
+    return { monthBilled, monthOwed, outstanding, activeStores };
+  }, [enrichedStores, visibleStores]);
+
+  const owedBreakdown = useMemo(() => {
+    return enrichedStores.filter((s) => s.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding);
+  }, [enrichedStores]);
+
+  const monthOwedBreakdown = useMemo(() => {
+    return enrichedStores.filter((s) => s.monthOwed > 0).sort((a, b) => b.monthOwed - a.monthOwed);
+  }, [enrichedStores]);
+
+  const availableMonths = useMemo(() => {
+    const allReports = (stores || []).flatMap((s) => s.reports);
+    const keys = new Set(allReports.map((r) => monthKey(r.reportDate)));
+    keys.add(currentMonthKey());
+    return Array.from(keys).sort().reverse();
+  }, [stores]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Big Company</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Track sales reports and payments for big company stores</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}
+          >
+            {availableMonths.map((mk) => (
+              <option key={mk} value={mk}>{monthLabel(mk)}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              setQuickLogStoreId(null);
+              setStoreSearchQuery("");
+              setQuickReportForm({ reportDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", plSold: "", nightSold: "", daySold: "", amount: "", paid: "", notes: "" });
+              setShowQuickLog(true);
+            }}
+            className="primarybtn"
+            style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={16} /> Log report
+          </button>
+          <button
+            onClick={() => setShowNewStore(true)}
+            style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={16} /> New store
+          </button>
+          <button
+            onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()); }}
+            style={{ background: "none", border: `1.5px solid ${bulkMode ? C.rose : C.border}`, color: bulkMode ? C.rose : C.textFaint, borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+          >
+            {bulkMode ? "Cancel" : "Select stores"}
+          </button>
+        </div>
+      </div>
+
+      {bulkMode && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.surface, border: `1px solid ${C.rose}40`, borderRadius: 10, padding: "10px 14px", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: C.textDim }}>{selectedIds.size} selected</span>
+          <button
+            disabled={selectedIds.size === 0 || deletingBulk}
+            onClick={() => {
+              if (window.confirm(`Delete ${selectedIds.size} store(s) and all their reports? This can't be undone.`)) {
+                deleteMultipleBigCoStores(Array.from(selectedIds));
+              }
+            }}
+            style={{
+              background: selectedIds.size === 0 ? C.border : C.rose,
+              color: selectedIds.size === 0 ? C.textFaint : "#2A0F0F",
+              border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700,
+              cursor: selectedIds.size === 0 ? "default" : "pointer",
+            }}
+          >
+            {deletingBulk ? "Deleting…" : `Delete selected (${selectedIds.size})`}
+          </button>
+        </div>
+      )}
+
+      {saveError && (
+        <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+          Couldn't save — try again.
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={() => setShowBilledBreakdown(!showBilledBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showBilledBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Billed — {monthLabel(selectedMonth)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthBilled.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by report</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowMonthOwedBreakdown(!showMonthOwedBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showMonthOwedBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed — {monthLabel(selectedMonth)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.monthOwed > 0 ? C.rose : C.text }}>${totals.monthOwed.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowOutstandingBreakdown(!showOutstandingBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showOutstandingBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed (all-time)</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.outstanding > 0 ? C.rose : C.text }}>${totals.outstanding.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
+        </button>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Active stores</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.activeStores}</div>
+        </div>
+      </div>
+
+      {showBilledBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Billed — {monthLabel(selectedMonth)} — by report
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {enrichedStores
+              .flatMap((s) => s.reports.filter((r) => monthKey(r.reportDate) === selectedMonth).map((r) => ({ ...r, storeName: s.name, storeId: s.id })))
+              .sort((a, b) => b.amount - a.amount)
+              .map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => { setExpanded(r.storeId); setShowHistory(r.storeId); setShowBilledBreakdown(false); }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%", gap: 10 }}
+                >
+                  <span style={{ fontSize: 13, color: C.text, minWidth: 0 }}>
+                    {r.storeName}
+                    {r.invoiceNumber && <span style={{ color: C.gold }}> · inv# {r.invoiceNumber}</span>}
+                  </span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>${r.amount.toFixed(2)}</span>
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {showMonthOwedBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Still owed — {monthLabel(selectedMonth)} — by store
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {monthOwedBreakdown.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => { setExpanded(s.id); setShowMonthOwedBreakdown(false); }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.monthOwed.toFixed(2)}</span>
+              </button>
+            ))}
+            {monthOwedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing owed this month.</div>}
+          </div>
+        </div>
+      )}
+
+      {showOutstandingBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+            Still owed (all-time) — by store
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {owedBreakdown.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => { setExpanded(s.id); setShowOutstandingBreakdown(false); }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
+              >
+                <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.outstanding.toFixed(2)}</span>
+              </button>
+            ))}
+            {owedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing outstanding.</div>}
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
+      ) : visibleStores.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
+          <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No big company stores yet</p>
+          <p style={{ fontSize: 13 }}>Tap "New store" to add your first one.</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {visibleStores.map((s) => (
+            <div key={s.id} style={{ background: C.surface, border: `1px solid ${selectedIds.has(s.id) ? C.rose : C.border}`, borderRadius: 13, overflow: "hidden" }}>
+              <div
+                onClick={() => {
+                  if (bulkMode) {
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(s.id)) next.delete(s.id);
+                      else next.add(s.id);
+                      return next;
+                    });
+                  } else {
+                    setExpanded(expanded === s.id ? null : s.id);
+                  }
+                }}
+                style={{ padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", gap: 12 }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                  {bulkMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(s.id)}
+                      onChange={() => {}}
+                      style={{ width: 18, height: 18, flexShrink: 0, accentColor: C.rose, cursor: "pointer" }}
+                    />
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: C.textFaint }}>
+                      {s.reports.length} report{s.reports.length === 1 ? "" : "s"} logged
+                      {s.isComplete && <span style={{ color: C.emerald }}> · Completed</span>}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                  {!bulkMode && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 999,
+                      background: s.reportedThisMonth ? C.emeraldBg : C.amberBg,
+                      color: s.reportedThisMonth ? C.emerald : C.amber,
+                      textTransform: "uppercase", letterSpacing: "0.04em",
+                      border: `1px solid ${s.reportedThisMonth ? C.emerald : C.amber}30`,
+                    }}>
+                      {s.reportedThisMonth ? "Reported" : "Not yet"}
+                    </span>
+                  )}
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: C.textFaint }}>Outstanding</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: s.outstanding > 0 ? C.rose : C.emerald }}>${s.outstanding.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {!bulkMode && expanded === s.id && (
+                <div style={{ borderTop: `1px solid ${C.border}`, padding: "12px 16px 16px" }}>
+                  {s.notes && (
+                    <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 }}>{s.notes}</div>
+                  )}
+                  {s.latestNote && (
+                    <div style={{ fontSize: 12, color: C.amber, fontStyle: "italic", background: C.amberBg, borderRadius: 8, padding: "8px 11px", display: "flex", gap: 6, alignItems: "flex-start", border: `1px solid ${C.amber}25`, marginBottom: 10 }}>
+                      <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
+                      {s.latestNote}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 16, fontSize: 12, marginBottom: 12, color: C.textDim, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
+                    >
+                      Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold, textDecoration: "underline" }}>${s.monthBilled.toFixed(2)}</b>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
+                    >
+                      Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, textDecoration: "underline" }}>${s.monthCollected.toFixed(2)}</b>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
+                    >
+                      All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}>${s.allTimeBilled.toFixed(2)}</b>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (editingStore !== s.id) {
+                        setEditStoreForm({ name: s.name, notes: s.notes });
+                      }
+                      setEditingStore(editingStore === s.id ? null : s.id);
+                    }}
+                    style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3, marginBottom: editingStore === s.id ? 8 : 12, display: "block" }}
+                  >
+                    {editingStore === s.id ? "Cancel" : "Edit store details"}
+                  </button>
+
+                  {editingStore === s.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Store name</label>
+                        <input type="text" value={editStoreForm.name} onChange={(e) => setEditStoreForm({ ...editStoreForm, name: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={editStoreForm.notes} onChange={(e) => setEditStoreForm({ ...editStoreForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const ok = await updateBigCoStore(s.id, { name: editStoreForm.name, notes: editStoreForm.notes });
+                          if (ok) setEditingStore(null);
+                        }}
+                        style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer", marginBottom: 8 }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm(`Delete "${s.name}" entirely? This removes the store and all ${s.reports.length} report(s) logged for it. This can't be undone.`)) {
+                            await deleteBigCoStore(s.id);
+                          }
+                        }}
+                        style={{ width: "100%", background: "none", border: `1px solid ${C.rose}50`, borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 600, color: C.rose, cursor: "pointer" }}
+                      >
+                        Delete store
+                      </button>
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowLogReport(s.id); setReportForm({ reportDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", plSold: "", nightSold: "", daySold: "", amount: "", paid: "", notes: "" }); }}
+                      style={{ flex: 1, background: C.gold, border: "none", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                    >
+                      + Log report
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowHistory(showHistory === s.id ? null : s.id); }}
+                      style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}
+                    >
+                      {showHistory === s.id ? "Hide" : "Show"} reports ({s.reports.length})
+                    </button>
+                  </div>
+
+                  {showLogReport === s.id && (
+                    <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Report date</label>
+                          <input type="date" value={reportForm.reportDate} onChange={(e) => setReportForm({ ...reportForm, reportDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Invoice number</label>
+                          <input type="text" value={reportForm.invoiceNumber} onChange={(e) => setReportForm({ ...reportForm, invoiceNumber: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 9, color: C.textFaint, marginBottom: 4 }}>Units sold</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                          <input type="number" value={reportForm.plSold} onChange={(e) => setReportForm({ ...reportForm, plSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                          <input type="number" value={reportForm.nightSold} onChange={(e) => setReportForm({ ...reportForm, nightSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                          <input type="number" value={reportForm.daySold} onChange={(e) => setReportForm({ ...reportForm, daySold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0" />
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                          <input type="number" step="0.01" value={reportForm.amount} onChange={(e) => setReportForm({ ...reportForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Paid $ (if any now)</label>
+                          <input type="number" step="0.01" value={reportForm.paid} onChange={(e) => setReportForm({ ...reportForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                        <input type="text" value={reportForm.notes} onChange={(e) => setReportForm({ ...reportForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="Optional" />
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          onClick={async () => {
+                            const ok = await logReport(s.id, reportForm);
+                            if (ok) {
+                              setShowLogReport(null);
+                              setReportForm({ reportDate: new Date().toISOString().slice(0, 10), invoiceNumber: "", plSold: "", nightSold: "", daySold: "", amount: "", paid: "", notes: "" });
+                            }
+                          }}
+                          style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setShowLogReport(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {showHistory === s.id && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {[...s.reports].sort((a, b) => b.reportDate.localeCompare(a.reportDate)).map((r) => {
+                        const remaining = r.amount - r.paid;
+
+                        if (editingReportId === r.id) {
+                          return (
+                            <div key={r.id} style={{ background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: 10 }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Report date</label>
+                                  <input type="date" value={editReportForm.reportDate} onChange={(e) => setEditReportForm({ ...editReportForm, reportDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Invoice number</label>
+                                  <input type="text" value={editReportForm.invoiceNumber} onChange={(e) => setEditReportForm({ ...editReportForm, invoiceNumber: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ fontSize: 9, color: C.textFaint, marginBottom: 4 }}>Units sold</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+                                  <input type="number" value={editReportForm.plSold} onChange={(e) => setEditReportForm({ ...editReportForm, plSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+                                  <input type="number" value={editReportForm.nightSold} onChange={(e) => setEditReportForm({ ...editReportForm, nightSold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+                                  <input type="number" value={editReportForm.daySold} onChange={(e) => setEditReportForm({ ...editReportForm, daySold: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Amount $</label>
+                                  <input type="number" step="0.01" value={editReportForm.amount} onChange={(e) => setEditReportForm({ ...editReportForm, amount: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                                <div>
+                                  <label style={{ fontSize: 9, color: C.textFaint }}>Paid $</label>
+                                  <input type="number" step="0.01" value={editReportForm.paid} onChange={(e) => setEditReportForm({ ...editReportForm, paid: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                                </div>
+                              </div>
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: 9, color: C.textFaint }}>Notes</label>
+                                <input type="text" value={editReportForm.notes} onChange={(e) => setEditReportForm({ ...editReportForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
+                              </div>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button
+                                  onClick={async () => {
+                                    const ok = await updateReport(s.id, r.id, {
+                                      reportDate: editReportForm.reportDate,
+                                      invoiceNumber: editReportForm.invoiceNumber,
+                                      plSold: parseFloat(editReportForm.plSold) || 0,
+                                      nightSold: parseFloat(editReportForm.nightSold) || 0,
+                                      daySold: parseFloat(editReportForm.daySold) || 0,
+                                      amount: parseFloat(editReportForm.amount) || 0,
+                                      paid: parseFloat(editReportForm.paid) || 0,
+                                      notes: editReportForm.notes,
+                                    });
+                                    if (ok) setEditingReportId(null);
+                                  }}
+                                  style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                                >
+                                  Save
+                                </button>
+                                <button onClick={() => setEditingReportId(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={r.id} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                            <div
+                              style={{ fontSize: 11, color: C.textDim, cursor: "pointer", flex: 1 }}
+                              onClick={() => {
+                                setEditReportForm({ reportDate: r.reportDate, invoiceNumber: r.invoiceNumber, plSold: r.plSold, nightSold: r.nightSold, daySold: r.daySold, amount: r.amount, paid: r.paid, notes: r.notes });
+                                setEditingReportId(r.id);
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, color: C.text }}>
+                                {new Date(r.reportDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                                {r.invoiceNumber && <span style={{ color: C.gold }}> · inv# {r.invoiceNumber}</span>}
+                              </div>
+                              <div style={{ marginTop: 2 }}>
+                                <span>${r.amount.toFixed(2)} billed</span>
+                                {r.paid > 0 && <span style={{ color: C.emerald }}> · ${r.paid.toFixed(2)} paid</span>}
+                                {remaining > 0 && <span style={{ color: C.rose }}> · ${remaining.toFixed(2)} remaining</span>}
+                              </div>
+                              {(r.plSold > 0 || r.nightSold > 0 || r.daySold > 0) && (
+                                <div style={{ marginTop: 2, color: C.textFaint }}>
+                                  {r.plSold > 0 && <span>PL: {r.plSold} </span>}
+                                  {r.nightSold > 0 && <span>Night: {r.nightSold} </span>}
+                                  {r.daySold > 0 && <span>Day: {r.daySold}</span>}
+                                </div>
+                              )}
+                              {r.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{r.notes}</div>}
+                            </div>
+                            <button
+                              onClick={() => { if (window.confirm("Delete this report entry?")) deleteReport(s.id, r.id); }}
+                              style={{ background: C.roseBg, border: "none", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, flexShrink: 0, cursor: "pointer" }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {s.reports.length === 0 && <div style={{ fontSize: 12, color: C.textFaint }}>No reports logged yet.</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showNewStore && (
+        <div onClick={() => setShowNewStore(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New big company store</h2>
+              <button onClick={() => setShowNewStore(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Store name</label>
+              <input type="text" autoFocus value={newStoreForm.name} onChange={(e) => setNewStoreForm({ ...newStoreForm, name: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="e.g. Big Mart Co." />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
+              <input type="text" value={newStoreForm.notes} onChange={(e) => setNewStoreForm({ ...newStoreForm, notes: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} placeholder="e.g. contact info" />
+            </div>
+            <button onClick={addStore} disabled={!newStoreForm.name.trim()} style={{ width: "100%", background: newStoreForm.name.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: newStoreForm.name.trim() ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700 }}>
+              Add store
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showQuickLog && (
+        <div onClick={() => setShowQuickLog(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>Log report</h2>
+              <button onClick={() => setShowQuickLog(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Store</label>
+              {quickLogStoreId ? (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.bg2, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: "10px 12px" }}>
+                  <span style={{ fontSize: 14, color: C.text }}>{enrichedStores.find((s) => s.id === quickLogStoreId)?.name}</span>
+                  <button type="button" onClick={() => { setQuickLogStoreId(null); setStoreSearchQuery(""); }} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 12, cursor: "pointer", textDecoration: "underline" }}>Change</button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={storeSearchQuery}
+                    onChange={(e) => setStoreSearchQuery(e.target.value)}
+                    placeholder="Type to search…"
+                    style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }}
+                  />
+                  {storeSearchQuery.trim() && (
+                    <div style={{ marginTop: 6, maxHeight: 160, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                      {enrichedStores
+                        .filter((s) => s.name.toLowerCase().includes(storeSearchQuery.toLowerCase()))
+                        .slice(0, 8)
+                        .map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => { setQuickLogStoreId(s.id); setStoreSearchQuery(""); }}
+                            style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderBottom: `1px solid ${C.border}`, padding: "9px 12px", fontSize: 13, color: C.text, cursor: "pointer" }}
+                          >
+                            {s.name}
+                          </button>
+                        ))}
+                      {enrichedStores.filter((s) => s.name.toLowerCase().includes(storeSearchQuery.toLowerCase())).length === 0 && (
+                        <div style={{ padding: "9px 12px", fontSize: 13, color: C.textFaint }}>No matching store — add it via "New store" first.</div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Report date</label>
+                <input type="date" value={quickReportForm.reportDate} onChange={(e) => setQuickReportForm({ ...quickReportForm, reportDate: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Invoice number</label>
+                <input type="text" value={quickReportForm.invoiceNumber} onChange={(e) => setQuickReportForm({ ...quickReportForm, invoiceNumber: e.target.value })} placeholder="Optional" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 6 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Units sold</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint }}>Panty Liner</label>
+                  <input type="number" value={quickReportForm.plSold} onChange={(e) => setQuickReportForm({ ...quickReportForm, plSold: e.target.value })} placeholder="0" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint }}>Night</label>
+                  <input type="number" value={quickReportForm.nightSold} onChange={(e) => setQuickReportForm({ ...quickReportForm, nightSold: e.target.value })} placeholder="0" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint }}>Day</label>
+                  <input type="number" value={quickReportForm.daySold} onChange={(e) => setQuickReportForm({ ...quickReportForm, daySold: e.target.value })} placeholder="0" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14, marginTop: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Amount $</label>
+                <input type="number" step="0.01" value={quickReportForm.amount} onChange={(e) => setQuickReportForm({ ...quickReportForm, amount: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Paid $ (if any now)</label>
+                <input type="number" step="0.01" value={quickReportForm.paid} onChange={(e) => setQuickReportForm({ ...quickReportForm, paid: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
+              <textarea value={quickReportForm.notes} onChange={(e) => setQuickReportForm({ ...quickReportForm, notes: e.target.value })} style={{ width: "100%", minHeight: 55, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+
+            <button
+              disabled={!quickLogStoreId}
+              onClick={async () => {
+                const ok = await logReport(quickLogStoreId, quickReportForm);
+                if (ok) setShowQuickLog(false);
+              }}
+              style={{ width: "100%", background: quickLogStoreId ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border, color: quickLogStoreId ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700, cursor: quickLogStoreId ? "pointer" : "default" }}
+            >
+              Save report
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
