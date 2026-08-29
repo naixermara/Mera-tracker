@@ -5280,12 +5280,8 @@ function SingleDocument({ d, isDN, pageBreak }) {
     <div style={{ maxWidth: 850, margin: "0 auto", padding: "40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src={CHOUMHEAN_LOGO} alt="Choumhean logo" style={{ width: 34, height: 34, objectFit: "contain" }} />
-            <div>
-              <div style={{ color: "#E31E24", fontWeight: 700, fontSize: 14 }}>CHOUMHEAN</div>
-              <div style={{ color: "#E31E24", fontSize: 11 }}>Trading CO., Ltd.</div>
-            </div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <img src={CHOUMHEAN_LOGO} alt="Choumhean logo" style={{ width: 60, height: 60, objectFit: "contain" }} />
           </div>
           <div style={{ textAlign: "center", flex: 1 }}>
             <div style={{ fontSize: 20, fontWeight: 700 }}>ជំហាន ត្រេឌីង ឯ.ក</div>
