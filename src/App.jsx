@@ -153,7 +153,8 @@ export default function MeraConsignmentApp() {
   const [authError, setAuthError] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
 
-  const [page, setPage] = useState("consignment");
+  const [page, setPage] = useState("sales");
+  const [salesSubPage, setSalesSubPage] = useState("consignment");
   const [consignmentSubView, setConsignmentSubView] = useState("regular");
   const [stores, setStores] = useState([]);
   const [salespeople, setSalespeople] = useState([]);
@@ -813,12 +814,12 @@ export default function MeraConsignmentApp() {
               <Sparkles size={17} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
-              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : page === "delivery" ? "Delivery & Invoices" : page === "bigco" ? "Corporate Accounts" : "Consignment Operations"}
+              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "delivery" ? "Delivery & Invoices" : page === "stores" ? "Stores" : page === "sales" ? (salesSubPage === "credit" ? "Credit Operations" : "Consignment Operations") : "Consignment Operations"}
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {page === "consignment" && (
+            {page === "sales" && salesSubPage === "consignment" && (
               <>
                 <select
                   value={selectedMonth}
@@ -829,12 +830,6 @@ export default function MeraConsignmentApp() {
                     <option key={k} value={k}>{monthLabel(k)}</option>
                   ))}
                 </select>
-                <button
-                  onClick={() => setShowNewStore(true)}
-                  style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
-                >
-                  <Plus size={16} /> New store
-                </button>
                 <button
                   onClick={() => setShowLog(true)}
                   className="primarybtn"
@@ -876,15 +871,15 @@ export default function MeraConsignmentApp() {
             Overview
           </button>
           <button
-            onClick={() => setPage("consignment")}
+            onClick={() => setPage("sales")}
             style={{
-              background: page === "consignment" ? C.surface : "none",
-              border: `1px solid ${page === "consignment" ? C.gold : C.border}`,
-              color: page === "consignment" ? C.goldBright : C.textFaint,
+              background: page === "sales" ? C.surface : "none",
+              border: `1px solid ${page === "sales" ? C.gold : C.border}`,
+              color: page === "sales" ? C.goldBright : C.textFaint,
               borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
             }}
           >
-            Consignment
+            Sales
           </button>
           <button
             onClick={() => setPage("kol")}
@@ -898,17 +893,6 @@ export default function MeraConsignmentApp() {
             KOL &amp; Content
           </button>
           <button
-            onClick={() => setPage("credit")}
-            style={{
-              background: page === "credit" ? C.surface : "none",
-              border: `1px solid ${page === "credit" ? C.gold : C.border}`,
-              color: page === "credit" ? C.goldBright : C.textFaint,
-              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
-            }}
-          >
-            Credit Term
-          </button>
-          <button
             onClick={() => setPage("delivery")}
             style={{
               background: page === "delivery" ? C.surface : "none",
@@ -919,17 +903,54 @@ export default function MeraConsignmentApp() {
           >
             Delivery &amp; Invoices
           </button>
+          <button
+            onClick={() => setPage("stores")}
+            style={{
+              background: page === "stores" ? C.surface : "none",
+              border: `1px solid ${page === "stores" ? C.gold : C.border}`,
+              color: page === "stores" ? C.goldBright : C.textFaint,
+              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Stores
+          </button>
         </div>
 
         {page === "overview" ? (
           <OverviewPage authUser={authUser} C={C} sbFetch={sbFetch} onNavigate={setPage} />
         ) : page === "kol" ? (
           <KolPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
-        ) : page === "credit" ? (
-          <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
         ) : page === "delivery" ? (
           <DeliveryNotePage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
-        ) : (
+        ) : page === "stores" ? (
+          <StoresPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
+        ) : page === "sales" ? (
+          <>
+            <div style={{ display: "flex", gap: 6, marginBottom: 18, marginTop: 4 }}>
+              <button
+                onClick={() => setSalesSubPage("consignment")}
+                style={{
+                  background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginRight: 14,
+                  color: salesSubPage === "consignment" ? C.gold : C.textFaint,
+                  borderBottom: `2px solid ${salesSubPage === "consignment" ? C.gold : "transparent"}`,
+                }}
+              >
+                Consignment
+              </button>
+              <button
+                onClick={() => setSalesSubPage("credit")}
+                style={{
+                  background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                  color: salesSubPage === "credit" ? C.gold : C.textFaint,
+                  borderBottom: `2px solid ${salesSubPage === "credit" ? C.gold : "transparent"}`,
+                }}
+              >
+                Credit Term
+              </button>
+            </div>
+            {salesSubPage === "credit" ? (
+              <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
+            ) : (
         <>
 
         <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
@@ -1437,7 +1458,9 @@ export default function MeraConsignmentApp() {
       </>
       )}
       </>
-      )}
+            )}
+          </>
+      ) : null}
       </div>
     </div>
   );
@@ -2626,12 +2649,6 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
             <Plus size={16} /> Log invoice
           </button>
           <button
-            onClick={() => setShowNewStore(true)}
-            style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
-          >
-            <Plus size={16} /> New store
-          </button>
-          <button
             onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()); }}
             style={{ background: "none", border: `1.5px solid ${bulkMode ? C.rose : C.border}`, color: bulkMode ? C.rose : C.textFaint, borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
           >
@@ -3811,12 +3828,6 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
             style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
           >
             <Plus size={16} /> Log report
-          </button>
-          <button
-            onClick={() => setShowNewStore(true)}
-            style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
-          >
-            <Plus size={16} /> New store
           </button>
           <button
             onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()); }}
@@ -5431,6 +5442,316 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
       {showBothPages && <SingleDocument d={linkedDN} isDN={true} pageBreak={true} />}
       <SingleDocument d={invoiceData} isDN={isDN} pageBreak={false} />
     </div>
+  );
+}
+
+function StoresPage({ authUser, C, sbFetch, logActivity }) {
+  const [activeType, setActiveType] = useState("consignment");
+  const [loading, setLoading] = useState(true);
+  const [consignmentStores, setConsignmentStores] = useState([]);
+  const [creditStores, setCreditStores] = useState([]);
+  const [bigcoStores, setBigcoStores] = useState([]);
+  const [saveError, setSaveError] = useState(false);
+  const [showNewStore, setShowNewStore] = useState(false);
+  const [editingStoreId, setEditingStoreId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const emptyForm = {
+    name: "", phone: "", email: "", address: "", vatTin: "",
+    day: "1", firstSent: new Date().toISOString().slice(0, 10),
+    creditDays: "30",
+    notes: "",
+  };
+  const [form, setForm] = useState(emptyForm);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [storeRows, creditRows, bigcoRows] = await Promise.all([
+          sbFetch("stores?select=*&order=name.asc"),
+          sbFetch("credit_stores?select=*&order=name.asc"),
+          sbFetch("bigco_stores?select=*&order=name.asc"),
+        ]);
+        setConsignmentStores(storeRows || []);
+        setCreditStores(creditRows || []);
+        setBigcoStores(bigcoRows || []);
+      } catch (e) {
+        setSaveError(true);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  function storesFor(type) {
+    if (type === "credit") return creditStores;
+    if (type === "corporate") return bigcoStores;
+    return consignmentStores;
+  }
+  function setStoresFor(type, updater) {
+    if (type === "credit") return setCreditStores(updater);
+    if (type === "corporate") return setBigcoStores(updater);
+    return setConsignmentStores(updater);
+  }
+  function tableFor(type) {
+    if (type === "credit") return "credit_stores";
+    if (type === "corporate") return "bigco_stores";
+    return "stores";
+  }
+
+  async function createStore() {
+    const trimmed = form.name.trim();
+    if (!trimmed) return;
+    try {
+      const contactInfo = { phone: form.phone, email: form.email, address: form.address, vat_tin: form.vatTin };
+      let body;
+      if (activeType === "credit") {
+        body = { name: trimmed, credit_days: parseInt(form.creditDays, 10) || 30, notes: form.notes, ...contactInfo };
+      } else if (activeType === "corporate") {
+        body = { name: trimmed, notes: form.notes, ...contactInfo };
+      } else {
+        body = { name: trimmed, day: parseInt(form.day, 10) || 1, first_sent: form.firstSent, pl_initial: 0, night_initial: 0, day_initial: 0, ...contactInfo };
+      }
+      const [inserted] = await sbFetch(tableFor(activeType), { method: "POST", body: JSON.stringify(body) });
+      setStoresFor(activeType, (prev) => [...prev, inserted].sort((a, b) => a.name.localeCompare(b.name)));
+      setShowNewStore(false);
+      setForm(emptyForm);
+      setSaveError(false);
+      logActivity?.(`Added ${activeType === "credit" ? "Credit Term" : activeType === "corporate" ? "Corporate Account" : "Consignment"} store`, inserted.name, form.vatTin ? `VAT TIN: ${form.vatTin}` : "");
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function updateStore(storeId, changes) {
+    try {
+      const body = activeType === "credit"
+        ? { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, credit_days: parseInt(changes.creditDays, 10) || 30, notes: changes.notes }
+        : activeType === "corporate"
+        ? { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, notes: changes.notes }
+        : { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, day: parseInt(changes.day, 10) || 1, notes: changes.notes };
+      await sbFetch(`${tableFor(activeType)}?id=eq.${storeId}`, { method: "PATCH", body: JSON.stringify(body) });
+      setStoresFor(activeType, (prev) => prev.map((s) => (s.id === storeId ? { ...s, ...body, vat_tin: changes.vatTin } : s)));
+      setEditingStoreId(null);
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function deleteStore(storeId, storeName) {
+    if (!window.confirm(`Delete "${storeName}"? This can't be undone.`)) return;
+    try {
+      await sbFetch(`${tableFor(activeType)}?id=eq.${storeId}`, { method: "DELETE" });
+      setStoresFor(activeType, (prev) => prev.filter((s) => s.id !== storeId));
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  const currentStores = storesFor(activeType).filter((s) => !searchQuery.trim() || s.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Stores</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Manage every store's info in one place, including VAT TIN</div>
+        </div>
+        <button
+          onClick={() => { setForm(emptyForm); setShowNewStore(true); }}
+          className="primarybtn"
+          style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+        >
+          <Plus size={16} /> New store
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+        {[
+          { key: "consignment", label: "Consignment" },
+          { key: "credit", label: "Credit Term" },
+          { key: "corporate", label: "Corporate Accounts" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setActiveType(t.key)}
+            style={{
+              padding: "8px 16px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: "pointer",
+              background: activeType === t.key ? C.surface : "none",
+              color: activeType === t.key ? C.goldBright : C.textFaint,
+              border: `1px solid ${activeType === t.key ? C.gold : C.border}`,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {saveError && (
+        <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+          Couldn't save — try again.
+        </div>
+      )}
+
+      <div style={{ position: "relative", marginBottom: 16 }}>
+        <Search size={15} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: C.textFaint }} />
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search stores…"
+          style={{ width: "100%", padding: "10px 14px 10px 38px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13, background: C.surface, color: C.text }}
+        />
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
+      ) : currentStores.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
+          <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No stores yet</p>
+          <p style={{ fontSize: 13 }}>Tap "New store" to add your first one.</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {currentStores.map((s) => (
+            <div key={s.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</div>
+                  <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>
+                    {s.phone && <span>{s.phone}</span>}
+                    {s.vat_tin && <span>{s.phone ? " · " : ""}VAT TIN: {s.vat_tin}</span>}
+                    {activeType === "credit" && <span> · Net {s.credit_days} days</span>}
+                    {activeType === "consignment" && <span> · Day {s.day}</span>}
+                  </div>
+                  {s.address && <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>{s.address}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button
+                    onClick={() => {
+                      setEditingStoreId(editingStoreId === s.id ? null : s.id);
+                      setForm({
+                        name: s.name, phone: s.phone || "", email: s.email || "", address: s.address || "", vatTin: s.vat_tin || "",
+                        day: String(s.day || 1), firstSent: s.first_sent || new Date().toISOString().slice(0, 10),
+                        creditDays: String(s.credit_days || 30),
+                        notes: s.notes || "",
+                      });
+                    }}
+                    style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 14px", fontSize: 12, color: C.text, cursor: "pointer" }}
+                  >
+                    {editingStoreId === s.id ? "Cancel" : "Edit"}
+                  </button>
+                  <button
+                    onClick={() => deleteStore(s.id, s.name)}
+                    style={{ background: C.roseBg, border: "none", borderRadius: 8, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, cursor: "pointer" }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {editingStoreId === s.id && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                  <StoreFormFields form={form} setForm={setForm} activeType={activeType} C={C} />
+                  <button
+                    onClick={() => updateStore(s.id, form)}
+                    style={{ width: "100%", background: C.gold, border: "none", borderRadius: 8, padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer", marginTop: 4 }}
+                  >
+                    Save changes
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showNewStore && (
+        <div onClick={() => setShowNewStore(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New {activeType === "credit" ? "Credit Term" : activeType === "corporate" ? "Corporate Account" : "Consignment"} store</h2>
+              <button onClick={() => setShowNewStore(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+            <StoreFormFields form={form} setForm={setForm} activeType={activeType} C={C} showName />
+            <button
+              onClick={createStore}
+              disabled={!form.name.trim()}
+              style={{
+                width: "100%",
+                background: form.name.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border,
+                color: form.name.trim() ? "#1A1508" : C.textFaint,
+                border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700,
+                cursor: form.name.trim() ? "pointer" : "default", marginTop: 4,
+              }}
+            >
+              Add store
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StoreFormFields({ form, setForm, activeType, C, showName }) {
+  return (
+    <>
+      {showName && (
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Store name</label>
+          <input type="text" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <div>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Phone</label>
+          <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Email</label>
+          <input type="text" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Address</label>
+        <input type="text" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>VAT TIN (optional)</label>
+        <input type="text" value={form.vatTin} onChange={(e) => setForm({ ...form, vatTin: e.target.value })} placeholder="e.g. K005-902305400" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+      </div>
+
+      {activeType === "consignment" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Visit day (1-31)</label>
+            <input type="number" min="1" max="31" value={form.day} onChange={(e) => setForm({ ...form, day: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>First sent date</label>
+            <input type="date" value={form.firstSent} onChange={(e) => setForm({ ...form, firstSent: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+          </div>
+        </div>
+      )}
+
+      {activeType === "credit" && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Credit term (days)</label>
+          <input type="number" value={form.creditDays} onChange={(e) => setForm({ ...form, creditDays: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+        </div>
+      )}
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
+        <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+      </div>
+    </>
   );
 }
 
