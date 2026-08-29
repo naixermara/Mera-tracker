@@ -4455,6 +4455,7 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
     newStoreDay: "1", newStoreFirstSent: new Date().toISOString().slice(0, 10),
     newStoreCreditDays: "30",
     customerPhone: "", customerEmail: "", customerAddress: "",
+    dnNumber: "",
     orderNo: "",
     issuedDate: new Date().toISOString().slice(0, 10),
     saleDate: new Date().toISOString().slice(0, 10),
@@ -4598,7 +4599,7 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
       }
       if (!storeId || !storeName) return false;
 
-      const dnNumber = nextDNNumber();
+      const dnNumber = dnForm.dnNumber.trim() || nextDNNumber();
       const [inserted] = await sbFetch("delivery_notes", {
         method: "POST",
         body: JSON.stringify({
@@ -4674,7 +4675,7 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
             <Plus size={16} /> Generate invoice
           </button>
           <button
-            onClick={() => { setDnForm({ ...emptyDNForm, orderNo: nextOrderNo() }); setShowNewDN(true); }}
+            onClick={() => { setDnForm({ ...emptyDNForm, dnNumber: nextDNNumber(), orderNo: nextOrderNo() }); setShowNewDN(true); }}
             className="primarybtn"
             style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
           >
@@ -4806,6 +4807,16 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
               <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New delivery note</h2>
               <button onClick={() => setShowNewDN(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+
+            <div style={{ marginBottom: 14, background: C.bg2, border: `1px solid ${C.gold}40`, borderRadius: 8, padding: "10px 12px" }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.gold, marginBottom: 6, textTransform: "uppercase" }}>DN Number</label>
+              <input
+                type="text"
+                value={dnForm.dnNumber}
+                onChange={(e) => setDnForm({ ...dnForm, dnNumber: e.target.value })}
+                style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 15, fontWeight: 700, background: C.surface, color: C.text, fontFamily: "'IBM Plex Mono', monospace" }}
+              />
             </div>
 
             <div style={{ marginBottom: 14 }}>
