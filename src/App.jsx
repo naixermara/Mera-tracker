@@ -4423,19 +4423,30 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [consignmentStores, setConsignmentStores] = useState([]);
+  const [creditStores, setCreditStores] = useState([]);
+  const [bigcoStores, setBigcoStores] = useState([]);
   const [saveError, setSaveError] = useState(false);
   const [showNewDN, setShowNewDN] = useState(false);
   const [printingDoc, setPrintingDoc] = useState(null); // { type: 'dn'|'invoice', data }
   const [genInvoiceFor, setGenInvoiceFor] = useState(null); // delivery note being turned into an invoice
+  const [showPickDN, setShowPickDN] = useState(false);
+  const [dnPickerQuery, setDnPickerQuery] = useState("");
 
   const emptyDNForm = {
-    customerName: "", customerPhone: "", customerEmail: "", customerAddress: "",
+    storeMode: "existing", // "existing" or "new"
     businessType: "consignment",
+    storeId: "",
+    newStoreName: "",
+    newStoreDay: "1", newStoreFirstSent: new Date().toISOString().slice(0, 10),
+    newStoreCreditDays: "30",
+    customerPhone: "", customerEmail: "", customerAddress: "",
     orderNo: "",
     issuedDate: new Date().toISOString().slice(0, 10),
     saleDate: new Date().toISOString().slice(0, 10),
     issuedBy: "", saleRep: "", paymentMethod: "",
     plQty: "", nightQty: "", dayQty: "",
+    plPrice: "", nightPrice: "", dayPrice: "",
     notes: "",
   };
   const [dnForm, setDnForm] = useState(emptyDNForm);
@@ -4443,12 +4454,18 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
   useEffect(() => {
     (async () => {
       try {
-        const [dnRows, invRows] = await Promise.all([
+        const [dnRows, invRows, storeRows, creditRows, bigcoRows] = await Promise.all([
           sbFetch("delivery_notes?select=*&order=created_at.desc"),
           sbFetch("sales_invoices?select=*&order=created_at.desc"),
+          sbFetch("stores?select=id,name"),
+          sbFetch("credit_stores?select=id,name"),
+          sbFetch("bigco_stores?select=id,name"),
         ]);
         setNotes(dnRows || []);
         setInvoices(invRows || []);
+        setConsignmentStores(storeRows || []);
+        setCreditStores(creditRows || []);
+        setBigcoStores(bigcoRows || []);
       } catch (e) {
         setSaveError(true);
       } finally {
@@ -4457,6 +4474,12 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
     })();
   }, []);
 
+  function storeListFor(businessType) {
+    if (businessType === "credit") return creditStores;
+    if (businessType === "corporate") return bigcoStores;
+    return consignmentStores;
+  }
+
   function nextNumber(prefix, existingList, field) {
     const year = new Date().getFullYear();
     const thisYear = existingList.filter((x) => x[field] && x[field].includes(String(year)));
@@ -4464,19 +4487,67 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
     return `${prefix}${year}-${String(num).padStart(4, "0")}`;
   }
 
+  async function createNewStoreFor(businessType, form) {
+    const trimmed = form.newStoreName.trim();
+    if (!trimmed) return null;
+    if (businessType === "credit") {
+      const [inserted] = await sbFetch("credit_stores", {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed, credit_days: parseInt(form.newStoreCreditDays, 10) || 30, notes: "" }),
+      });
+      setCreditStores((prev) => [...prev, { id: inserted.id, name: inserted.name }]);
+      return inserted.id;
+    }
+    if (businessType === "corporate") {
+      const [inserted] = await sbFetch("bigco_stores", {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed, notes: "" }),
+      });
+      setBigcoStores((prev) => [...prev, { id: inserted.id, name: inserted.name }]);
+      return inserted.id;
+    }
+    const [inserted] = await sbFetch("stores", {
+      method: "POST",
+      body: JSON.stringify({
+        name: trimmed,
+        day: parseInt(form.newStoreDay, 10) || 1,
+        first_sent: form.newStoreFirstSent,
+        pl_initial: 0,
+        night_initial: 0,
+        day_initial: 0,
+      }),
+    });
+    setConsignmentStores((prev) => [...prev, { id: inserted.id, name: inserted.name }]);
+    return inserted.id;
+  }
+
   async function createDeliveryNote() {
     try {
+      let storeId = dnForm.storeId;
+      let storeName = "";
+      if (dnForm.storeMode === "new") {
+        storeId = await createNewStoreFor(dnForm.businessType, dnForm);
+        if (!storeId) return false;
+        storeName = dnForm.newStoreName.trim();
+      } else {
+        const list = storeListFor(dnForm.businessType);
+        const found = list.find((s) => s.id === storeId);
+        storeName = found ? found.name : "";
+      }
+      if (!storeId || !storeName) return false;
+
       const dnNumber = nextNumber("CH", notes, "dn_number");
       const [inserted] = await sbFetch("delivery_notes", {
         method: "POST",
         body: JSON.stringify({
           dn_number: dnNumber,
           order_no: dnForm.orderNo,
-          customer_name: dnForm.customerName.trim(),
+          customer_name: storeName,
           customer_phone: dnForm.customerPhone,
           customer_email: dnForm.customerEmail,
           customer_address: dnForm.customerAddress,
           business_type: dnForm.businessType,
+          store_id: storeId,
           issued_date: dnForm.issuedDate,
           sale_date: dnForm.saleDate,
           issued_by: dnForm.issuedBy,
@@ -4485,6 +4556,9 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
           pl_qty: parseFloat(dnForm.plQty) || 0,
           night_qty: parseFloat(dnForm.nightQty) || 0,
           day_qty: parseFloat(dnForm.dayQty) || 0,
+          pl_price: parseFloat(dnForm.plPrice) || 0,
+          night_price: parseFloat(dnForm.nightPrice) || 0,
+          day_price: parseFloat(dnForm.dayPrice) || 0,
           notes: dnForm.notes,
           created_by: authUser?.email || "unknown",
         }),
@@ -4529,14 +4603,58 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
           <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Delivery &amp; Invoices</h2>
           <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Create a delivery note first, then generate the matching invoice from it</div>
         </div>
-        <button
-          onClick={() => { setDnForm(emptyDNForm); setShowNewDN(true); }}
-          className="primarybtn"
-          style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
-        >
-          <Plus size={16} /> New delivery note
-        </button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={() => { setDnPickerQuery(""); setShowPickDN(true); }}
+            style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={16} /> Generate invoice
+          </button>
+          <button
+            onClick={() => { setDnForm(emptyDNForm); setShowNewDN(true); }}
+            className="primarybtn"
+            style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+          >
+            <Plus size={16} /> New delivery note
+          </button>
+        </div>
       </div>
+
+      {showPickDN && (
+        <div onClick={() => setShowPickDN(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 420, maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 20, margin: 0, fontWeight: 600 }}>Pick a delivery note</h2>
+              <button onClick={() => setShowPickDN(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+            <input
+              type="text"
+              autoFocus
+              value={dnPickerQuery}
+              onChange={(e) => setDnPickerQuery(e.target.value)}
+              placeholder="Search by DN number or customer…"
+              style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text, marginBottom: 12 }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {notes
+                .filter((n) => !dnPickerQuery.trim() || n.dn_number.toLowerCase().includes(dnPickerQuery.toLowerCase()) || n.customer_name.toLowerCase().includes(dnPickerQuery.toLowerCase()))
+                .slice(0, 20)
+                .map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => { setShowPickDN(false); setGenInvoiceFor(n); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", cursor: "pointer" }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{n.dn_number}</div>
+                    <div style={{ fontSize: 11, color: C.textFaint }}>{n.customer_name}</div>
+                  </button>
+                ))}
+              {notes.length === 0 && <div style={{ fontSize: 13, color: C.textFaint, textAlign: "center", padding: "20px 0" }}>No delivery notes yet.</div>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {saveError && (
         <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
@@ -4628,8 +4746,88 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
             </div>
 
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Customer / store name</label>
-              <input type="text" autoFocus value={dnForm.customerName} onChange={(e) => setDnForm({ ...dnForm, customerName: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Business type</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[
+                  { key: "consignment", label: "Consignment" },
+                  { key: "credit", label: "Credit Term" },
+                  { key: "corporate", label: "Corporate" },
+                ].map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setDnForm({ ...dnForm, businessType: t.key, storeId: "", newStoreName: "" })}
+                    style={{
+                      flex: 1, padding: "9px 4px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer",
+                      background: dnForm.businessType === t.key ? C.gold : "none",
+                      color: dnForm.businessType === t.key ? "#1A1508" : C.textDim,
+                      border: `1px solid ${dnForm.businessType === t.key ? C.gold : C.border}`,
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Store</label>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setDnForm({ ...dnForm, storeMode: "existing" })}
+                  style={{ flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer", background: dnForm.storeMode === "existing" ? C.bg2 : "none", color: dnForm.storeMode === "existing" ? C.text : C.textFaint, border: `1px solid ${C.border}` }}
+                >
+                  Existing store
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDnForm({ ...dnForm, storeMode: "new" })}
+                  style={{ flex: 1, padding: "8px 4px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer", background: dnForm.storeMode === "new" ? C.bg2 : "none", color: dnForm.storeMode === "new" ? C.text : C.textFaint, border: `1px solid ${C.border}` }}
+                >
+                  + New store
+                </button>
+              </div>
+              {dnForm.storeMode === "existing" ? (
+                <select
+                  value={dnForm.storeId}
+                  onChange={(e) => setDnForm({ ...dnForm, storeId: e.target.value })}
+                  style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }}
+                >
+                  <option value="">Select a store…</option>
+                  {storeListFor(dnForm.businessType).map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div>
+                  <input
+                    type="text"
+                    value={dnForm.newStoreName}
+                    onChange={(e) => setDnForm({ ...dnForm, newStoreName: e.target.value })}
+                    placeholder="New store name"
+                    style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text, marginBottom: 8 }}
+                  />
+                  {dnForm.businessType === "consignment" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>Visit day (1-31)</label>
+                        <input type="number" min="1" max="31" value={dnForm.newStoreDay} onChange={(e) => setDnForm({ ...dnForm, newStoreDay: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 9, color: C.textFaint }}>First sent date</label>
+                        <input type="date" value={dnForm.newStoreFirstSent} onChange={(e) => setDnForm({ ...dnForm, newStoreFirstSent: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+                      </div>
+                    </div>
+                  )}
+                  {dnForm.businessType === "credit" && (
+                    <div>
+                      <label style={{ fontSize: 9, color: C.textFaint }}>Credit term (days)</label>
+                      <input type="number" value={dnForm.newStoreCreditDays} onChange={(e) => setDnForm({ ...dnForm, newStoreCreditDays: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
@@ -4646,31 +4844,6 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Address</label>
               <input type="text" value={dnForm.customerAddress} onChange={(e) => setDnForm({ ...dnForm, customerAddress: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
-            </div>
-
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Business type</label>
-              <div style={{ display: "flex", gap: 6 }}>
-                {[
-                  { key: "consignment", label: "Consignment" },
-                  { key: "credit", label: "Credit Term" },
-                  { key: "corporate", label: "Corporate" },
-                ].map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => setDnForm({ ...dnForm, businessType: t.key })}
-                    style={{
-                      flex: 1, padding: "9px 4px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer",
-                      background: dnForm.businessType === t.key ? C.gold : "none",
-                      color: dnForm.businessType === t.key ? "#1A1508" : C.textDim,
-                      border: `1px solid ${dnForm.businessType === t.key ? C.gold : C.border}`,
-                    }}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
@@ -4707,16 +4880,23 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
             </div>
 
             <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 8, textTransform: "uppercase" }}>Products</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 4 }}>
+              <div style={{ fontSize: 9, color: C.textFaint }}></div>
+              <div style={{ fontSize: 9, color: C.textFaint }}>Qty (Box)</div>
+              <div style={{ fontSize: 9, color: C.textFaint }}>Price $ (internal only)</div>
+            </div>
             {[
               { key: "pl", label: "Panty Liner" },
               { key: "night", label: "Night (យប់)" },
               { key: "day", label: "Day (ថ្ងៃ)" },
             ].map((p) => (
-              <div key={p.key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8, alignItems: "center" }}>
+              <div key={p.key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8, alignItems: "center" }}>
                 <div style={{ fontSize: 13, color: C.textDim }}>{p.label}</div>
-                <input type="number" value={dnForm[p.key + "Qty"]} onChange={(e) => setDnForm({ ...dnForm, [p.key + "Qty"]: e.target.value })} placeholder="Qty (Box)" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+                <input type="number" value={dnForm[p.key + "Qty"]} onChange={(e) => setDnForm({ ...dnForm, [p.key + "Qty"]: e.target.value })} placeholder="0" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+                <input type="number" step="0.01" value={dnForm[p.key + "Price"]} onChange={(e) => setDnForm({ ...dnForm, [p.key + "Price"]: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
               </div>
             ))}
+            <div style={{ fontSize: 10, color: C.textFaint, marginBottom: 14 }}>Price won't show on the printed delivery note — it carries over automatically when you generate an invoice.</div>
 
             <div style={{ marginBottom: 18, marginTop: 10 }}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
@@ -4725,13 +4905,13 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
 
             <button
               onClick={createDeliveryNote}
-              disabled={!dnForm.customerName.trim()}
+              disabled={dnForm.storeMode === "existing" ? !dnForm.storeId : !dnForm.newStoreName.trim()}
               style={{
                 width: "100%",
-                background: dnForm.customerName.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border,
-                color: dnForm.customerName.trim() ? "#1A1508" : C.textFaint,
+                background: (dnForm.storeMode === "existing" ? dnForm.storeId : dnForm.newStoreName.trim()) ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border,
+                color: (dnForm.storeMode === "existing" ? dnForm.storeId : dnForm.newStoreName.trim()) ? "#1A1508" : C.textFaint,
                 border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700,
-                cursor: dnForm.customerName.trim() ? "pointer" : "default",
+                cursor: (dnForm.storeMode === "existing" ? dnForm.storeId : dnForm.newStoreName.trim()) ? "pointer" : "default",
               }}
             >
               Create delivery note
@@ -4767,7 +4947,9 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
 function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, onClose, onCreated }) {
   const [invoiceType, setInvoiceType] = useState(dn.business_type === "credit" || dn.business_type === "corporate" ? "commercial" : "consignment");
   const [form, setForm] = useState({
-    plPrice: "", nightPrice: "", dayPrice: "",
+    plPrice: dn.pl_price ? String(dn.pl_price) : "",
+    nightPrice: dn.night_price ? String(dn.night_price) : "",
+    dayPrice: dn.day_price ? String(dn.day_price) : "",
     discountPercent: "0",
     vatPercent: "10",
     exchangeRate: "4046",
