@@ -924,11 +924,11 @@ export default function MeraConsignmentApp() {
         {page === "overview" ? (
           <OverviewPage authUser={authUser} C={C} sbFetch={sbFetch} onNavigate={setPage} />
         ) : page === "kol" ? (
-          <KolPage authUser={authUser} C={C} sbFetch={sbFetch} />
+          <KolPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
         ) : page === "credit" ? (
-          <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} />
+          <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
         ) : page === "delivery" ? (
-          <DeliveryNotePage authUser={authUser} C={C} sbFetch={sbFetch} />
+          <DeliveryNotePage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
         ) : (
         <>
 
@@ -956,7 +956,7 @@ export default function MeraConsignmentApp() {
         </div>
 
         {consignmentSubView === "bigco" ? (
-          <BigCoPage authUser={authUser} C={C} sbFetch={sbFetch} />
+          <BigCoPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
         ) : (
         <>
 
@@ -1443,7 +1443,7 @@ export default function MeraConsignmentApp() {
   );
 }
 
-function KolPage({ authUser, C, sbFetch }) {
+function KolPage({ authUser, C, sbFetch, logActivity }) {
   const [kols, setKols] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState(false);
@@ -1521,6 +1521,7 @@ function KolPage({ authUser, C, sbFetch }) {
       setShowNewKol(false);
       setNewKolForm({ name: "", packageCost: "", packageVideos: "", notes: "" });
       setSaveError(false);
+      logActivity?.("Added new KOL", inserted.name, `Package $${(parseFloat(newKolForm.packageCost) || 0).toFixed(2)}, ${parseInt(newKolForm.packageVideos, 10) || 0} videos`);
     } catch (e) {
       setSaveError(true);
     }
@@ -1587,6 +1588,8 @@ function KolPage({ authUser, C, sbFetch }) {
       setShowLogPayment(null);
       setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
       setSaveError(false);
+      const kolName = kols.find((k) => k.id === kolId)?.name || "";
+      logActivity?.("Logged KOL payment", kolName, `$${(parseFloat(paymentForm.amount) || 0).toFixed(2)} on ${paymentForm.paymentDate}`);
     } catch (e) {
       setSaveError(true);
     }
@@ -2150,7 +2153,7 @@ function KolPage({ authUser, C, sbFetch }) {
   );
 }
 
-function CreditTermPage({ authUser, C, sbFetch }) {
+function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
   const [stores, setStores] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState(false);
@@ -2246,6 +2249,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
       setShowNewStore(false);
       setNewStoreForm({ name: "", creditDays: "30", notes: "" });
       setSaveError(false);
+      logActivity?.("Added Credit Term store", inserted.name, `Net ${parseInt(newStoreForm.creditDays, 10) || 30} days`);
     } catch (e) {
       setSaveError(true);
     }
@@ -2292,6 +2296,8 @@ function CreditTermPage({ authUser, C, sbFetch }) {
         )
       );
       setSaveError(false);
+      const storeName = stores.find((s) => s.id === storeId)?.name || "";
+      logActivity?.("Logged Credit Term invoice", storeName, `$${(parseFloat(form.amount) || 0).toFixed(2)} billed on ${form.invoiceDate}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -2331,6 +2337,8 @@ function CreditTermPage({ authUser, C, sbFetch }) {
         )
       );
       setSaveError(false);
+      const storeName = stores.find((s) => s.id === storeId)?.name || "";
+      logActivity?.("Logged Credit Term payment", storeName, `$${(parseFloat(form.amount) || 0).toFixed(2)} on ${form.paymentDate}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -3502,7 +3510,7 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
   );
 }
 
-function BigCoPage({ authUser, C, sbFetch }) {
+function BigCoPage({ authUser, C, sbFetch, logActivity }) {
   const [stores, setStores] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState(false);
@@ -3579,6 +3587,7 @@ function BigCoPage({ authUser, C, sbFetch }) {
       setShowNewStore(false);
       setNewStoreForm({ name: "", notes: "" });
       setSaveError(false);
+      logActivity?.("Added Corporate Account store", inserted.name, "");
     } catch (e) {
       setSaveError(true);
     }
@@ -3669,6 +3678,8 @@ function BigCoPage({ authUser, C, sbFetch }) {
         )
       );
       setSaveError(false);
+      const storeName = stores.find((s) => s.id === storeId)?.name || "";
+      logActivity?.("Logged Corporate Account report", storeName, `$${(parseFloat(form.amount) || 0).toFixed(2)} billed, $${(parseFloat(form.paid) || 0).toFixed(2)} paid on ${form.reportDate}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -4419,7 +4430,7 @@ function BigCoPage({ authUser, C, sbFetch }) {
   );
 }
 
-function DeliveryNotePage({ authUser, C, sbFetch }) {
+function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState([]);
   const [invoices, setInvoices] = useState([]);
@@ -4457,9 +4468,9 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
         const [dnRows, invRows, storeRows, creditRows, bigcoRows] = await Promise.all([
           sbFetch("delivery_notes?select=*&order=created_at.desc"),
           sbFetch("sales_invoices?select=*&order=created_at.desc"),
-          sbFetch("stores?select=id,name"),
-          sbFetch("credit_stores?select=id,name"),
-          sbFetch("bigco_stores?select=id,name"),
+          sbFetch("stores?select=id,name,phone,email,address"),
+          sbFetch("credit_stores?select=id,name,phone,email,address"),
+          sbFetch("bigco_stores?select=id,name,phone,email,address"),
         ]);
         setNotes(dnRows || []);
         setInvoices(invRows || []);
@@ -4487,23 +4498,37 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
     return `${prefix}${year}-${String(num).padStart(4, "0")}`;
   }
 
+  function nextOrderNo() {
+    // Starts at SO009518 and counts up from whichever SO0##### number is highest so far —
+    // covers both our own auto-generated numbers and any store-supplied SO numbers already logged.
+    const START = 9518;
+    const existingNums = notes
+      .map((n) => n.order_no)
+      .filter((o) => o && /^SO\d+$/.test(o))
+      .map((o) => parseInt(o.slice(2), 10));
+    const highest = existingNums.length ? Math.max(...existingNums) : START - 1;
+    const next = Math.max(highest + 1, START);
+    return `SO${String(next).padStart(6, "0")}`;
+  }
+
   async function createNewStoreFor(businessType, form) {
     const trimmed = form.newStoreName.trim();
     if (!trimmed) return null;
+    const contactInfo = { phone: form.customerPhone || "", email: form.customerEmail || "", address: form.customerAddress || "" };
     if (businessType === "credit") {
       const [inserted] = await sbFetch("credit_stores", {
         method: "POST",
-        body: JSON.stringify({ name: trimmed, credit_days: parseInt(form.newStoreCreditDays, 10) || 30, notes: "" }),
+        body: JSON.stringify({ name: trimmed, credit_days: parseInt(form.newStoreCreditDays, 10) || 30, notes: "", ...contactInfo }),
       });
-      setCreditStores((prev) => [...prev, { id: inserted.id, name: inserted.name }]);
+      setCreditStores((prev) => [...prev, inserted]);
       return inserted.id;
     }
     if (businessType === "corporate") {
       const [inserted] = await sbFetch("bigco_stores", {
         method: "POST",
-        body: JSON.stringify({ name: trimmed, notes: "" }),
+        body: JSON.stringify({ name: trimmed, notes: "", ...contactInfo }),
       });
-      setBigcoStores((prev) => [...prev, { id: inserted.id, name: inserted.name }]);
+      setBigcoStores((prev) => [...prev, inserted]);
       return inserted.id;
     }
     const [inserted] = await sbFetch("stores", {
@@ -4515,9 +4540,10 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
         pl_initial: 0,
         night_initial: 0,
         day_initial: 0,
+        ...contactInfo,
       }),
     });
-    setConsignmentStores((prev) => [...prev, { id: inserted.id, name: inserted.name }]);
+    setConsignmentStores((prev) => [...prev, inserted]);
     return inserted.id;
   }
 
@@ -4567,6 +4593,7 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
       setShowNewDN(false);
       setDnForm(emptyDNForm);
       setSaveError(false);
+      logActivity?.("Created delivery note", storeName, inserted.dn_number);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -4611,7 +4638,7 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
             <Plus size={16} /> Generate invoice
           </button>
           <button
-            onClick={() => { setDnForm(emptyDNForm); setShowNewDN(true); }}
+            onClick={() => { setDnForm({ ...emptyDNForm, orderNo: nextOrderNo() }); setShowNewDN(true); }}
             className="primarybtn"
             style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
           >
@@ -4791,7 +4818,16 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
               {dnForm.storeMode === "existing" ? (
                 <select
                   value={dnForm.storeId}
-                  onChange={(e) => setDnForm({ ...dnForm, storeId: e.target.value })}
+                  onChange={(e) => {
+                    const selected = storeListFor(dnForm.businessType).find((s) => s.id === e.target.value);
+                    setDnForm({
+                      ...dnForm,
+                      storeId: e.target.value,
+                      customerPhone: selected?.phone || "",
+                      customerEmail: selected?.email || "",
+                      customerAddress: selected?.address || "",
+                    });
+                  }}
                   style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }}
                 >
                   <option value="">Select a store…</option>
@@ -4849,7 +4885,7 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
               <div>
                 <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Order No</label>
-                <input type="text" value={dnForm.orderNo} onChange={(e) => setDnForm({ ...dnForm, orderNo: e.target.value })} placeholder="Optional" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                <input type="text" value={dnForm.orderNo} onChange={(e) => setDnForm({ ...dnForm, orderNo: e.target.value })} placeholder="Auto-generated, or type the store's own number" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
               </div>
               <div>
                 <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Payment method</label>
@@ -4928,6 +4964,7 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
           sbFetch={sbFetch}
           nextNumber={nextNumber}
           invoices={invoices}
+          logActivity={logActivity}
           onClose={() => setGenInvoiceFor(null)}
           onCreated={(inv) => { setInvoices((prev) => [inv, ...prev]); setGenInvoiceFor(null); }}
         />
@@ -4944,7 +4981,7 @@ function DeliveryNotePage({ authUser, C, sbFetch }) {
   );
 }
 
-function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, onClose, onCreated }) {
+function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, logActivity, onClose, onCreated }) {
   const [invoiceType, setInvoiceType] = useState(dn.business_type === "credit" || dn.business_type === "corporate" ? "commercial" : "consignment");
   const [form, setForm] = useState({
     plPrice: dn.pl_price ? String(dn.pl_price) : "",
@@ -4996,6 +5033,7 @@ function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, 
           created_by: authUser?.email || "unknown",
         }),
       });
+      logActivity?.("Generated invoice", dn.customer_name, `${inserted.invoice_number} (${invoiceType}) from ${dn.dn_number}`);
       onCreated(inserted);
     } catch (e) {
       // parent shows saveError via its own state on next load if needed; keep this modal simple
