@@ -5280,7 +5280,7 @@ function SingleDocument({ d, isDN, pageBreak }) {
     <div style={{ maxWidth: 850, margin: "0 auto", padding: "40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
         <div style={{ marginBottom: 16 }}>
-          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 220, height: 220, objectFit: "contain" }} />
+          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 320, height: 320, objectFit: "contain" }} />
         </div>
 
         <div style={{ textAlign: "center", marginBottom: 16 }}>
