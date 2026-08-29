@@ -25,7 +25,7 @@ async function sbFetch(path, options = {}, retries = 2) {
         ...options,
         headers: {
           apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${currentAccessToken || SUPABASE_KEY}`,
+          Authorization: `Bearer ${currentAccessToken || SUPABASE_KEY}`,A
           "Content-Type": "application/json",
           Prefer: options.method === "POST" ? "return=representation" : undefined,
           ...(options.headers || {}),
@@ -806,13 +806,17 @@ export default function MeraConsignmentApp() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: `linear-gradient(180deg, ${C.bg2} 0%, ${C.bg} 340px)`, fontFamily: "'Manrope', sans-serif", color: C.text, paddingBottom: 70 }}>
+    <div className="mera-app-root" style={{ minHeight: "100vh", background: `linear-gradient(180deg, ${C.bg2} 0%, ${C.bg} 340px)`, fontFamily: "'Manrope', sans-serif", color: C.text, paddingBottom: 70 }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600;6..96,700&family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
         * { box-sizing: border-box; }
         button { font-family: inherit; cursor: pointer; }
         input, select, textarea { font-family: inherit; }
         ::placeholder { color: ${C.textFaint}; }
+        @media print {
+          .mera-app-root > *:not(:has(.doc-print-root)) { display: none !important; }
+          .mera-app-root { min-height: auto !important; background: #fff !important; padding-bottom: 0 !important; }
+        }
         .daycell { transition: all 0.15s ease; }
         .daycell:hover { transform: translateY(-2px); border-color: ${C.gold} !important; }
         .storerow { transition: all 0.15s ease; }
@@ -5444,8 +5448,8 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
       <style>{`
         @media print {
           .doc-no-print { display: none !important; }
-          html, body { background: #fff; height: auto !important; overflow: visible !important; }
-          .doc-print-root { position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; }
+          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; }
+          .doc-print-root { display: block !important; position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; z-index: auto !important; }
         }
       `}</style>
       <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
