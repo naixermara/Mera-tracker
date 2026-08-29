@@ -5279,17 +5279,8 @@ function SingleDocument({ d, isDN, pageBreak }) {
   return (
     <div style={{ maxWidth: 850, margin: "0 auto", padding: "40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <img src={CHOUMHEAN_LOGO} alt="Choumhean logo" style={{ width: 60, height: 60, objectFit: "contain" }} />
-          </div>
-          <div style={{ textAlign: "center", flex: 1 }}>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>ជំហាន ត្រេឌីង ឯ.ក</div>
-            <div style={{ fontSize: 10, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
-            <div style={{ fontSize: 10, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
-            <div style={{ fontSize: 10, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
-          </div>
-          <div style={{ width: 90 }} />
+        <div style={{ marginBottom: 16 }}>
+          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 120, height: 120, objectFit: "contain" }} />
         </div>
 
         <div style={{ textAlign: "center", marginBottom: 16 }}>
