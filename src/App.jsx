@@ -813,7 +813,7 @@ export default function MeraConsignmentApp() {
               <Sparkles size={17} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
-              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : page === "bigco" ? "Corporate Accounts" : "Consignment Operations"}
+              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "credit" ? "Credit Operations" : page === "delivery" ? "Delivery & Invoices" : page === "bigco" ? "Corporate Accounts" : "Consignment Operations"}
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
@@ -908,6 +908,17 @@ export default function MeraConsignmentApp() {
           >
             Credit Term
           </button>
+          <button
+            onClick={() => setPage("delivery")}
+            style={{
+              background: page === "delivery" ? C.surface : "none",
+              border: `1px solid ${page === "delivery" ? C.gold : C.border}`,
+              color: page === "delivery" ? C.goldBright : C.textFaint,
+              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Delivery &amp; Invoices
+          </button>
         </div>
 
         {page === "overview" ? (
@@ -916,6 +927,8 @@ export default function MeraConsignmentApp() {
           <KolPage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : page === "credit" ? (
           <CreditTermPage authUser={authUser} C={C} sbFetch={sbFetch} />
+        ) : page === "delivery" ? (
+          <DeliveryNotePage authUser={authUser} C={C} sbFetch={sbFetch} />
         ) : (
         <>
 
@@ -2150,6 +2163,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   const [editingStore, setEditingStore] = useState(null);
   const [bulkMode, setBulkMode] = useState(false);
+  const [mainSearchQuery, setMainSearchQuery] = useState("");
   const [showQuickLog, setShowQuickLog] = useState(false);
   const [quickLogStoreId, setQuickLogStoreId] = useState(null);
   const [storeSearchQuery, setStoreSearchQuery] = useState("");
@@ -2532,16 +2546,18 @@ function CreditTermPage({ authUser, C, sbFetch }) {
   }, [stores, selectedMonth]);
 
   const visibleStores = useMemo(() => {
-    return enrichedStores.filter((s) => {
-      if (!s.isComplete) return true;
-      if (s.completionMonth === selectedMonth) return true;
-      // Also keep a completed store visible if it had any real activity (billed or collected)
-      // in the selected month — its completion month is based on the last invoice date, which
-      // can differ from when a payment actually posted.
-      if (s.monthBilled > 0 || s.monthCollected > 0) return true;
-      return false;
-    });
-  }, [enrichedStores, selectedMonth]);
+    return enrichedStores
+      .filter((s) => {
+        if (!s.isComplete) return true;
+        if (s.completionMonth === selectedMonth) return true;
+        // Also keep a completed store visible if it had any real activity (billed or collected)
+        // in the selected month — its completion month is based on the last invoice date, which
+        // can differ from when a payment actually posted.
+        if (s.monthBilled > 0 || s.monthCollected > 0) return true;
+        return false;
+      })
+      .filter((s) => !mainSearchQuery.trim() || s.name.toLowerCase().includes(mainSearchQuery.toLowerCase()));
+  }, [enrichedStores, selectedMonth, mainSearchQuery]);
 
   const totals = useMemo(() => {
     const monthBilled = enrichedStores.reduce((a, s) => a + s.monthBilled, 0);
@@ -2614,6 +2630,16 @@ function CreditTermPage({ authUser, C, sbFetch }) {
             {bulkMode ? "Cancel" : "Select stores"}
           </button>
         </div>
+      </div>
+
+      <div style={{ position: "relative", marginBottom: 16 }}>
+        <Search size={15} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: C.textFaint }} />
+        <input
+          value={mainSearchQuery}
+          onChange={(e) => setMainSearchQuery(e.target.value)}
+          placeholder="Search stores…"
+          style={{ width: "100%", padding: "10px 14px 10px 38px", borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13, background: C.surface, color: C.text }}
+        />
       </div>
 
       {bulkMode && (
@@ -2704,7 +2730,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
                 <button
                   key={inv.id}
                   type="button"
-                  onClick={() => { setExpanded(inv.storeId); setShowHistory(inv.storeId); setShowBilledBreakdown(false); }}
+                  onClick={() => { setExpanded(inv.storeId); setShowHistory(inv.storeId); setShowBilledBreakdown(false); setMainSearchQuery(inv.storeName); }}
                   style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%", gap: 10 }}
                 >
                   <span style={{ fontSize: 13, color: C.text, minWidth: 0 }}>
@@ -2728,7 +2754,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
               <button
                 key={s.id}
                 type="button"
-                onClick={() => { setExpanded(s.id); setShowCollectedBreakdown(false); }}
+                onClick={() => { setExpanded(s.id); setShowCollectedBreakdown(false); setMainSearchQuery(s.name); }}
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
@@ -2750,7 +2776,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
               <button
                 key={s.id}
                 type="button"
-                onClick={() => { setExpanded(s.id); setShowMonthOwedBreakdown(false); }}
+                onClick={() => { setExpanded(s.id); setShowMonthOwedBreakdown(false); setMainSearchQuery(s.name); }}
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
@@ -2772,7 +2798,7 @@ function CreditTermPage({ authUser, C, sbFetch }) {
               <button
                 key={s.id}
                 type="button"
-                onClick={() => { setExpanded(s.id); setShowOutstandingBreakdown(false); }}
+                onClick={() => { setExpanded(s.id); setShowOutstandingBreakdown(false); setMainSearchQuery(s.name); }}
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
@@ -4389,6 +4415,710 @@ function BigCoPage({ authUser, C, sbFetch }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DeliveryNotePage({ authUser, C, sbFetch }) {
+  const [loading, setLoading] = useState(true);
+  const [notes, setNotes] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [saveError, setSaveError] = useState(false);
+  const [showNewDN, setShowNewDN] = useState(false);
+  const [printingDoc, setPrintingDoc] = useState(null); // { type: 'dn'|'invoice', data }
+  const [genInvoiceFor, setGenInvoiceFor] = useState(null); // delivery note being turned into an invoice
+
+  const emptyDNForm = {
+    customerName: "", customerPhone: "", customerEmail: "", customerAddress: "",
+    businessType: "consignment",
+    orderNo: "",
+    issuedDate: new Date().toISOString().slice(0, 10),
+    saleDate: new Date().toISOString().slice(0, 10),
+    issuedBy: "", saleRep: "", paymentMethod: "",
+    plQty: "", nightQty: "", dayQty: "",
+    notes: "",
+  };
+  const [dnForm, setDnForm] = useState(emptyDNForm);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [dnRows, invRows] = await Promise.all([
+          sbFetch("delivery_notes?select=*&order=created_at.desc"),
+          sbFetch("sales_invoices?select=*&order=created_at.desc"),
+        ]);
+        setNotes(dnRows || []);
+        setInvoices(invRows || []);
+      } catch (e) {
+        setSaveError(true);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  function nextNumber(prefix, existingList, field) {
+    const year = new Date().getFullYear();
+    const thisYear = existingList.filter((x) => x[field] && x[field].includes(String(year)));
+    const num = thisYear.length + 1;
+    return `${prefix}${year}-${String(num).padStart(4, "0")}`;
+  }
+
+  async function createDeliveryNote() {
+    try {
+      const dnNumber = nextNumber("CH", notes, "dn_number");
+      const [inserted] = await sbFetch("delivery_notes", {
+        method: "POST",
+        body: JSON.stringify({
+          dn_number: dnNumber,
+          order_no: dnForm.orderNo,
+          customer_name: dnForm.customerName.trim(),
+          customer_phone: dnForm.customerPhone,
+          customer_email: dnForm.customerEmail,
+          customer_address: dnForm.customerAddress,
+          business_type: dnForm.businessType,
+          issued_date: dnForm.issuedDate,
+          sale_date: dnForm.saleDate,
+          issued_by: dnForm.issuedBy,
+          sale_rep: dnForm.saleRep,
+          payment_method: dnForm.paymentMethod,
+          pl_qty: parseFloat(dnForm.plQty) || 0,
+          night_qty: parseFloat(dnForm.nightQty) || 0,
+          day_qty: parseFloat(dnForm.dayQty) || 0,
+          notes: dnForm.notes,
+          created_by: authUser?.email || "unknown",
+        }),
+      });
+      setNotes((prev) => [inserted, ...prev]);
+      setShowNewDN(false);
+      setDnForm(emptyDNForm);
+      setSaveError(false);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
+    }
+  }
+
+  async function deleteDeliveryNote(id) {
+    try {
+      await sbFetch(`delivery_notes?id=eq.${id}`, { method: "DELETE" });
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  async function deleteInvoice(id) {
+    try {
+      await sbFetch(`sales_invoices?id=eq.${id}`, { method: "DELETE" });
+      setInvoices((prev) => prev.filter((i) => i.id !== id));
+      setSaveError(false);
+    } catch (e) {
+      setSaveError(true);
+    }
+  }
+
+  const invoicesForNote = (dnId) => invoices.filter((i) => i.delivery_note_id === dnId);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Delivery &amp; Invoices</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Create a delivery note first, then generate the matching invoice from it</div>
+        </div>
+        <button
+          onClick={() => { setDnForm(emptyDNForm); setShowNewDN(true); }}
+          className="primarybtn"
+          style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
+        >
+          <Plus size={16} /> New delivery note
+        </button>
+      </div>
+
+      {saveError && (
+        <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+          Couldn't save — try again.
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
+      ) : notes.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: C.textFaint }}>
+          <p style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18 }}>No delivery notes yet</p>
+          <p style={{ fontSize: 13 }}>Tap "New delivery note" to create your first one.</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {notes.map((dn) => {
+            const linkedInvoices = invoicesForNote(dn.id);
+            return (
+              <div key={dn.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, padding: "14px 16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 15 }}>{dn.dn_number} · {dn.customer_name}</div>
+                    <div style={{ fontSize: 11, color: C.textFaint }}>
+                      {new Date(dn.sale_date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                      {" · "}{dn.business_type === "credit" ? "Credit Term" : dn.business_type === "corporate" ? "Corporate Accounts" : "Consignment"}
+                      {linkedInvoices.length > 0 && ` · ${linkedInvoices.length} invoice${linkedInvoices.length === 1 ? "" : "s"} generated`}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button
+                      onClick={() => setPrintingDoc({ type: "dn", data: dn })}
+                      style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, color: C.text, cursor: "pointer" }}
+                    >
+                      Print DN
+                    </button>
+                    <button
+                      onClick={() => { setGenInvoiceFor(dn); }}
+                      style={{ background: C.gold, border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                    >
+                      + Generate invoice
+                    </button>
+                    <button
+                      onClick={() => { if (window.confirm(`Delete ${dn.dn_number}? This can't be undone.`)) deleteDeliveryNote(dn.id); }}
+                      style={{ background: C.roseBg, border: "none", borderRadius: 8, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: C.rose, cursor: "pointer" }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {linkedInvoices.length > 0 && (
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {linkedInvoices.map((inv) => (
+                      <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.bg2, borderRadius: 8, padding: "8px 12px" }}>
+                        <span style={{ fontSize: 12, color: C.textDim }}>
+                          {inv.invoice_number} · {inv.invoice_type === "tax" ? "Tax Invoice" : inv.invoice_type === "consignment" ? "Consignment Note" : "Commercial Invoice"}
+                        </span>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            onClick={() => setPrintingDoc({ type: "invoice", data: inv })}
+                            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 11, color: C.text, cursor: "pointer" }}
+                          >
+                            Print
+                          </button>
+                          <button
+                            onClick={() => { if (window.confirm(`Delete ${inv.invoice_number}?`)) deleteInvoice(inv.id); }}
+                            style={{ background: "none", border: "none", color: C.rose, cursor: "pointer" }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showNewDN && (
+        <div onClick={() => setShowNewDN(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New delivery note</h2>
+              <button onClick={() => setShowNewDN(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Customer / store name</label>
+              <input type="text" autoFocus value={dnForm.customerName} onChange={(e) => setDnForm({ ...dnForm, customerName: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Phone</label>
+                <input type="text" value={dnForm.customerPhone} onChange={(e) => setDnForm({ ...dnForm, customerPhone: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Email</label>
+                <input type="text" value={dnForm.customerEmail} onChange={(e) => setDnForm({ ...dnForm, customerEmail: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Address</label>
+              <input type="text" value={dnForm.customerAddress} onChange={(e) => setDnForm({ ...dnForm, customerAddress: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Business type</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[
+                  { key: "consignment", label: "Consignment" },
+                  { key: "credit", label: "Credit Term" },
+                  { key: "corporate", label: "Corporate" },
+                ].map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setDnForm({ ...dnForm, businessType: t.key })}
+                    style={{
+                      flex: 1, padding: "9px 4px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer",
+                      background: dnForm.businessType === t.key ? C.gold : "none",
+                      color: dnForm.businessType === t.key ? "#1A1508" : C.textDim,
+                      border: `1px solid ${dnForm.businessType === t.key ? C.gold : C.border}`,
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Order No</label>
+                <input type="text" value={dnForm.orderNo} onChange={(e) => setDnForm({ ...dnForm, orderNo: e.target.value })} placeholder="Optional" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Payment method</label>
+                <input type="text" value={dnForm.paymentMethod} onChange={(e) => setDnForm({ ...dnForm, paymentMethod: e.target.value })} placeholder="e.g. ABA Choumhean Trading" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Issued date</label>
+                <input type="date" value={dnForm.issuedDate} onChange={(e) => setDnForm({ ...dnForm, issuedDate: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Sale date</label>
+                <input type="date" value={dnForm.saleDate} onChange={(e) => setDnForm({ ...dnForm, saleDate: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Issued by</label>
+                <input type="text" value={dnForm.issuedBy} onChange={(e) => setDnForm({ ...dnForm, issuedBy: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Sale rep</label>
+                <input type="text" value={dnForm.saleRep} onChange={(e) => setDnForm({ ...dnForm, saleRep: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 8, textTransform: "uppercase" }}>Products</div>
+            {[
+              { key: "pl", label: "Panty Liner" },
+              { key: "night", label: "Night (យប់)" },
+              { key: "day", label: "Day (ថ្ងៃ)" },
+            ].map((p) => (
+              <div key={p.key} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8, alignItems: "center" }}>
+                <div style={{ fontSize: 13, color: C.textDim }}>{p.label}</div>
+                <input type="number" value={dnForm[p.key + "Qty"]} onChange={(e) => setDnForm({ ...dnForm, [p.key + "Qty"]: e.target.value })} placeholder="Qty (Box)" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+              </div>
+            ))}
+
+            <div style={{ marginBottom: 18, marginTop: 10 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
+              <textarea value={dnForm.notes} onChange={(e) => setDnForm({ ...dnForm, notes: e.target.value })} style={{ width: "100%", minHeight: 55, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+
+            <button
+              onClick={createDeliveryNote}
+              disabled={!dnForm.customerName.trim()}
+              style={{
+                width: "100%",
+                background: dnForm.customerName.trim() ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.border,
+                color: dnForm.customerName.trim() ? "#1A1508" : C.textFaint,
+                border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700,
+                cursor: dnForm.customerName.trim() ? "pointer" : "default",
+              }}
+            >
+              Create delivery note
+            </button>
+          </div>
+        </div>
+      )}
+
+      {genInvoiceFor && (
+        <GenerateInvoiceModal
+          dn={genInvoiceFor}
+          C={C}
+          authUser={authUser}
+          sbFetch={sbFetch}
+          nextNumber={nextNumber}
+          invoices={invoices}
+          onClose={() => setGenInvoiceFor(null)}
+          onCreated={(inv) => { setInvoices((prev) => [inv, ...prev]); setGenInvoiceFor(null); }}
+        />
+      )}
+
+      {printingDoc && (
+        <DocumentPrintView
+          doc={printingDoc}
+          onClose={() => setPrintingDoc(null)}
+          linkedDN={printingDoc.type === "invoice" ? notes.find((n) => n.id === printingDoc.data.delivery_note_id) : null}
+        />
+      )}
+    </div>
+  );
+}
+
+function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, onClose, onCreated }) {
+  const [invoiceType, setInvoiceType] = useState(dn.business_type === "credit" || dn.business_type === "corporate" ? "commercial" : "consignment");
+  const [form, setForm] = useState({
+    plPrice: "", nightPrice: "", dayPrice: "",
+    discountPercent: "0",
+    vatPercent: "10",
+    exchangeRate: "4046",
+    vatTin: "",
+    paymentTerm: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const availableTypes = dn.business_type === "consignment"
+    ? [{ key: "consignment", label: "Consignment Note" }]
+    : [{ key: "commercial", label: "Commercial Invoice" }, { key: "tax", label: "Tax Invoice" }];
+
+  async function handleCreate() {
+    setSaving(true);
+    try {
+      const invoiceNumber = invoiceType === "consignment"
+        ? nextNumber("CH", invoices.filter((i) => i.invoice_type === "consignment"), "invoice_number")
+        : invoiceType === "tax"
+        ? nextNumber("INV", invoices.filter((i) => i.invoice_type === "tax"), "invoice_number")
+        : nextNumber("B", invoices.filter((i) => i.invoice_type === "commercial"), "invoice_number");
+
+      const [inserted] = await sbFetch("sales_invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          delivery_note_id: dn.id,
+          invoice_number: invoiceNumber,
+          invoice_type: invoiceType,
+          customer_name: dn.customer_name,
+          customer_phone: dn.customer_phone,
+          customer_address: dn.customer_address,
+          vat_tin: form.vatTin,
+          order_no: dn.order_no,
+          invoice_date: dn.sale_date,
+          payment_term: form.paymentTerm,
+          issued_by: dn.issued_by,
+          sale_rep: dn.sale_rep,
+          pl_qty: dn.pl_qty, night_qty: dn.night_qty, day_qty: dn.day_qty,
+          pl_price: parseFloat(form.plPrice) || 0,
+          night_price: parseFloat(form.nightPrice) || 0,
+          day_price: parseFloat(form.dayPrice) || 0,
+          discount_percent: parseFloat(form.discountPercent) || 0,
+          vat_percent: invoiceType === "tax" ? (parseFloat(form.vatPercent) || 0) : 0,
+          exchange_rate: parseFloat(form.exchangeRate) || 4046,
+          created_by: authUser?.email || "unknown",
+        }),
+      });
+      onCreated(inserted);
+    } catch (e) {
+      // parent shows saveError via its own state on next load if needed; keep this modal simple
+      alert("Couldn't create the invoice — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>Generate invoice</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+        </div>
+
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 16 }}>
+          From {dn.dn_number} · {dn.customer_name}
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Invoice type</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {availableTypes.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setInvoiceType(t.key)}
+                style={{
+                  flex: 1, padding: "9px 4px", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer",
+                  background: invoiceType === t.key ? C.gold : "none",
+                  color: invoiceType === t.key ? "#1A1508" : C.textDim,
+                  border: `1px solid ${invoiceType === t.key ? C.gold : C.border}`,
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 8, textTransform: "uppercase" }}>Prices (per box)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+          <div>
+            <label style={{ fontSize: 9, color: C.textFaint }}>Panty Liner</label>
+            <input type="number" step="0.01" value={form.plPrice} onChange={(e) => setForm({ ...form, plPrice: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 9, color: C.textFaint }}>Night</label>
+            <input type="number" step="0.01" value={form.nightPrice} onChange={(e) => setForm({ ...form, nightPrice: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 9, color: C.textFaint }}>Day</label>
+            <input type="number" step="0.01" value={form.dayPrice} onChange={(e) => setForm({ ...form, dayPrice: e.target.value })} placeholder="0.00" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.bg2, color: C.text }} />
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Discount %</label>
+            <input type="number" value={form.discountPercent} onChange={(e) => setForm({ ...form, discountPercent: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+          </div>
+          {invoiceType === "tax" && (
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>VAT %</label>
+              <input type="number" value={form.vatPercent} onChange={(e) => setForm({ ...form, vatPercent: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+          )}
+        </div>
+
+        {invoiceType !== "consignment" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>VAT TIN</label>
+              <input type="text" value={form.vatTin} onChange={(e) => setForm({ ...form, vatTin: e.target.value })} placeholder="Optional" style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Exchange rate (៛)</label>
+              <input type="number" value={form.exchangeRate} onChange={(e) => setForm({ ...form, exchangeRate: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={handleCreate}
+          disabled={saving}
+          style={{ width: "100%", background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 9, padding: "12px 0", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+        >
+          {saving ? "Creating…" : "Create invoice"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+function SingleDocument({ d, isDN, pageBreak }) {
+  const products = [
+    { code: "8849308071235", label: "Mera Panty Liner (ប្រចាំថ្ងៃ)", qty: Number(d.pl_qty || 0), price: Number(d.pl_price || 0) },
+    { code: "8849308071259", label: "Mera for night time(យប់)", qty: Number(d.night_qty || 0), price: Number(d.night_price || 0) },
+    { code: "8849308071242", label: "Mera for day(ថ្ងៃ)", qty: Number(d.day_qty || 0), price: Number(d.day_price || 0) },
+  ].filter((p) => p.qty > 0);
+
+  const subtotal = products.reduce((a, p) => a + p.qty * p.price, 0);
+  const discountAmt = isDN ? 0 : subtotal * ((Number(d.discount_percent) || 0) / 100);
+  const afterDiscount = subtotal - discountAmt;
+  const vatAmt = !isDN && d.invoice_type === "tax" ? afterDiscount * ((Number(d.vat_percent) || 0) / 100) : 0;
+  const grandTotal = afterDiscount + vatAmt;
+  const rielTotal = !isDN ? grandTotal * (Number(d.exchange_rate) || 4046) : 0;
+
+  const title = isDN ? "DELIVERY NOTE" : d.invoice_type === "tax" ? "TAX INVOICE" : d.invoice_type === "consignment" ? "CONSINGNMENT NOTE" : "COMMERCIAL INVOICE";
+  const khmerTitle = isDN ? "ប័ណ្ណបញ្ជូនទំនិញទៅអតិវិន" : d.invoice_type === "tax" ? "វិក្កយបត្រអាករ" : d.invoice_type === "consignment" ? "" : "វិក្កយបត្រ";
+  const docNumber = isDN ? d.dn_number : d.invoice_number;
+  const docDate = isDN ? d.sale_date : d.invoice_date;
+
+  return (
+    <div style={{ maxWidth: 850, margin: "0 auto", padding: "40px 40px", color: "#1a1a1a", fontFamily: "'Khmer OS', 'Noto Sans Khmer', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 34, height: 34, background: "#E31E24", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16 }}>W</div>
+            <div>
+              <div style={{ color: "#E31E24", fontWeight: 700, fontSize: 14 }}>CHOUMHEAN</div>
+              <div style={{ color: "#E31E24", fontSize: 11 }}>Trading CO., Ltd.</div>
+            </div>
+          </div>
+          <div style={{ textAlign: "center", flex: 1 }}>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>ជំហាន ត្រេឌីង ឯ.ក</div>
+            <div style={{ fontSize: 10, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
+            <div style={{ fontSize: 10, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
+            <div style={{ fontSize: 10, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
+          </div>
+          <div style={{ width: 90 }} />
+        </div>
+
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          {khmerTitle && <div style={{ fontSize: 17, fontWeight: 700, textDecoration: "underline" }}>{khmerTitle}</div>}
+          <div style={{ fontSize: 16, fontWeight: 700, textDecoration: isDN || d.invoice_type === "consignment" ? "underline" : "none" }}>{title}</div>
+        </div>
+
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 14, fontSize: 12 }}>
+          <tbody>
+            <tr>
+              <td style={{ border: "1px solid #000", padding: "6px 10px", width: "55%", verticalAlign: "top" }}>
+                <div><b>ឈ្មោះ{isDN ? "" : "អតិថិជន"} :</b> {d.customer_name}</div>
+                {(d.customer_address) && <div style={{ marginTop: 2 }}><b>អាសយដ្ឋាន :</b> {d.customer_address}</div>}
+                {(d.customer_phone) && <div style={{ marginTop: 2 }}><b>លេខទូរស័ព្ទ:</b> {d.customer_phone}</div>}
+                {!isDN && (
+                  <div style={{ marginTop: 2 }}>
+                    <b>ការទូទាត់តាមកាលកំណត់:</b>{" "}
+                    {["COD", "Credit", "Consignment"].map((opt) => (
+                      <span key={opt} style={{ marginRight: 8 }}>☐ {opt}</span>
+                    ))}
+                  </div>
+                )}
+                {!isDN && d.vat_tin && <div style={{ marginTop: 2 }}><b>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖</b> {d.vat_tin}</div>}
+              </td>
+              <td style={{ border: "1px solid #000", padding: "6px 10px", verticalAlign: "top" }}>
+                <div><b>{isDN ? "DN:" : "លេខវិក្កយបត្រ:"}</b> {docNumber}</div>
+                {d.order_no && <div style={{ marginTop: 2 }}><b>{isDN ? "Order No :" : "លេខបញ្ជាទិញ:"}</b> {d.order_no}</div>}
+                <div style={{ marginTop: 2 }}><b>{isDN ? "Sale Date :" : "កាលបរិច្ឆេទលក់:"}</b> {new Date(docDate + "T00:00:00").toLocaleDateString("en-GB")}</div>
+                <div style={{ marginTop: 2 }}><b>{isDN ? "Issued By :" : "ចេញដោយ:"}</b> {d.issued_by}</div>
+                <div style={{ marginTop: 2 }}><b>{isDN ? "Sale Rep :" : "តំណាងលក់:"}</b> {d.sale_rep}</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 14, fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: "#f2f2f2" }}>
+              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>No</th>
+              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Barcode</th>
+              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Description</th>
+              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>UM</th>
+              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Qty</th>
+              {!isDN && <>
+                <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Price</th>
+                <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Discount</th>
+                <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Amount</th>
+              </>}
+            </tr>
+          </thead>
+          <tbody>
+            {products.map((p, i) => (
+              <tr key={p.code}>
+                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>{i + 1}</td>
+                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>{p.code}</td>
+                <td style={{ border: "1px solid #000", padding: "6px 4px" }}>{p.label}</td>
+                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>Box</td>
+                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>{p.qty}</td>
+                {!isDN && <>
+                  <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "right" }}>${p.price.toFixed(2)}</td>
+                  <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>%0</td>
+                  <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "right" }}>${(p.qty * p.price).toFixed(2)}</td>
+                </>}
+              </tr>
+            ))}
+            {Array.from({ length: Math.max(0, 5 - products.length) }).map((_, i) => (
+              <tr key={"blank" + i}>
+                <td style={{ border: "1px solid #000", padding: "10px 4px" }}>&nbsp;</td>
+                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
+                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
+                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
+                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
+                {!isDN && <><td style={{ border: "1px solid #000" }}></td><td style={{ border: "1px solid #000" }}></td><td style={{ border: "1px solid #000" }}></td></>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {isDN ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, fontSize: 12 }}>
+            <div>- Payment Method : {d.payment_method || "—"}</div>
+            <div><b>Total Qty :</b> {products.reduce((a, p) => a + p.qty, 0)}</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 20 }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 12, width: 320 }}>
+              <tbody>
+                <tr><td style={{ border: "1px solid #000", padding: "5px 10px" }}>សរុប / Sub-Total :</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${subtotal.toFixed(2)}</td></tr>
+                <tr><td style={{ border: "1px solid #000", padding: "5px 10px" }}>ចុះថ្លៃ / Discount ({Number(d.discount_percent || 0)}%):</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${discountAmt.toFixed(2)}</td></tr>
+                {d.invoice_type === "tax" && (
+                  <tr><td style={{ border: "1px solid #000", padding: "5px 10px" }}>VAT ({Number(d.vat_percent || 0)}%)</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${vatAmt.toFixed(2)}</td></tr>
+                )}
+                <tr style={{ fontWeight: 700 }}><td style={{ border: "1px solid #000", padding: "5px 10px" }}>សរុបចុងក្រោយ/ Grand Total($):</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${grandTotal.toFixed(2)}</td></tr>
+                <tr style={{ fontWeight: 700 }}><td style={{ border: "1px solid #000", padding: "5px 10px" }}>សរុបចុងក្រោយ/ Grand Total(៛):</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>៛{Math.round(rielTotal).toLocaleString()}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!isDN && (
+          <div style={{ textAlign: "right", fontSize: 10, color: "#333", marginBottom: 20 }}>
+            អត្រាប្តូរប្រាក់គិតតាមធនាគារជាតិ 1$ = {Number(d.exchange_rate || 4046).toLocaleString()}៛
+          </div>
+        )}
+
+        <div style={{ fontSize: 11, marginBottom: 40 }}>
+          <b>{isDN ? "" : "បញ្ជាក់:"}</b>
+          <div>- សូមពិនិត្យទំនិញអោយបានត្រឹមត្រូវមុននឹងទទួលទំនិញ។</div>
+          {d.invoice_type === "consignment" && (
+            <>
+              <div>- ក្រុមហ៊ុននឹងធ្វើការទទួលយកទំនិញមកវិញនៅពេលអតិថិជនមិនអាចលក់បាន។</div>
+              <div>- ទំនិញដែលលក់បានចាប់ពី 20$ឡើងទៅក្រុមហ៊ុនស្នើសុំធ្វើការទូទាត់ទឹកប្រាក់។</div>
+            </>
+          )}
+          {d.notes && <div style={{ marginTop: 6 }}>{d.notes}</div>}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 30 }}>
+          <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកប្រគល់</div>
+          </div>
+          <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកដឹក</div>
+          </div>
+          <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកទទួល</div>
+          </div>
+        </div>
+
+        {!isDN && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderTop: "1px solid #ccc", paddingTop: 16 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>ABA PAY</div>
+              <div style={{ fontSize: 11 }}>CHOUMHEAN TRADING CO., LTD.</div>
+              <div style={{ fontSize: 11 }}>Account number: 555 666 798</div>
+            </div>
+            <div style={{ textAlign: "right", fontSize: 11 }}>
+              <div>081 882 982</div>
+              <div>មេរា-Mera</div>
+            </div>
+          </div>
+        )}
+      </div>
+  );
+}
+
+function DocumentPrintView({ doc, onClose, linkedDN }) {
+  const isDN = doc.type === "dn";
+  const invoiceData = doc.data;
+  const showBothPages = !isDN && linkedDN;
+  const docNumber = isDN ? invoiceData.dn_number : invoiceData.invoice_number;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, overflowY: "auto" }}>
+      <style>{`
+        @media print {
+          .doc-no-print { display: none !important; }
+          body { background: #fff; }
+        }
+      `}</style>
+      <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
+        <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
+          Print preview — {docNumber}{showBothPages ? ` (with ${linkedDN.dn_number})` : ""}
+        </span>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
+          <button onClick={onClose} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
+        </div>
+      </div>
+
+      {showBothPages && <SingleDocument d={linkedDN} isDN={true} pageBreak={true} />}
+      <SingleDocument d={invoiceData} isDN={isDN} pageBreak={false} />
     </div>
   );
 }
