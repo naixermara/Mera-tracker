@@ -5248,16 +5248,16 @@ function SingleDocument({ d, isDN, pageBreak }) {
   const rielTotal = !isDN ? grandTotal * (Number(d.exchange_rate) || 4046) : 0;
 
   const title = isDN ? "DELIVERY NOTE" : d.invoice_type === "tax" ? "TAX INVOICE" : d.invoice_type === "consignment" ? "CONSINGNMENT NOTE" : "COMMERCIAL INVOICE";
-  const khmerTitle = isDN ? "ប័ណ្ណបញ្ជូនទំនិញទៅអតិវិន" : d.invoice_type === "tax" ? "វិក្កយបត្រអាករ" : d.invoice_type === "consignment" ? "" : "វិក្កយបត្រ";
+  const khmerTitle = isDN ? "ប័ណ្ណបញ្ជូនទំនិញទៅអតិថិជន" : d.invoice_type === "tax" ? "វិក្កយបត្រអាករ" : d.invoice_type === "consignment" ? "" : "វិក្កយបត្រ";
   const docNumber = isDN ? d.dn_number : d.invoice_number;
   const docDate = isDN ? d.sale_date : d.invoice_date;
 
   return (
-    <div style={{ maxWidth: 850, margin: "0 auto", padding: "40px 40px", color: "#1a1a1a", fontFamily: "'Khmer OS', 'Noto Sans Khmer', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
+    <div style={{ maxWidth: 850, margin: "0 auto", padding: "40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 34, height: 34, background: "#E31E24", borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16 }}>W</div>
+            <img src={CHOUMHEAN_LOGO} alt="Choumhean logo" style={{ width: 34, height: 34, objectFit: "contain" }} />
             <div>
               <div style={{ color: "#E31E24", fontWeight: 700, fontSize: 14 }}>CHOUMHEAN</div>
               <div style={{ color: "#E31E24", fontSize: 11 }}>Trading CO., Ltd.</div>
@@ -5423,6 +5423,9 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, overflowY: "auto" }}>
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link href="https://fonts.googleapis.com/css2?family=Battambang:wght@400;700&display=swap" rel="stylesheet" />
       <style>{`
         @media print {
           .doc-no-print { display: none !important; }
