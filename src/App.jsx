@@ -149,6 +149,24 @@ const C = {
 };
 
 export default function MeraConsignmentApp() {
+  useEffect(() => {
+    if (document.getElementById("battambang-font-link")) return;
+    const preconnect1 = document.createElement("link");
+    preconnect1.rel = "preconnect";
+    preconnect1.href = "https://fonts.googleapis.com";
+    const preconnect2 = document.createElement("link");
+    preconnect2.rel = "preconnect";
+    preconnect2.href = "https://fonts.gstatic.com";
+    preconnect2.crossOrigin = "anonymous";
+    const fontLink = document.createElement("link");
+    fontLink.id = "battambang-font-link";
+    fontLink.rel = "stylesheet";
+    fontLink.href = "https://fonts.googleapis.com/css2?family=Battambang:wght@400;700&display=swap";
+    document.head.appendChild(preconnect1);
+    document.head.appendChild(preconnect2);
+    document.head.appendChild(fontLink);
+  }, []);
+
   const [authUser, setAuthUser] = useState(undefined); // undefined = checking, null = logged out, object = logged in
   const [authError, setAuthError] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -5422,14 +5440,12 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
   const docNumber = isDN ? invoiceData.dn_number : invoiceData.invoice_number;
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, overflowY: "auto" }}>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      <link href="https://fonts.googleapis.com/css2?family=Battambang:wght@400;700&display=swap" rel="stylesheet" />
+    <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, overflowY: "auto" }}>
       <style>{`
         @media print {
           .doc-no-print { display: none !important; }
-          body { background: #fff; }
+          html, body { background: #fff; height: auto !important; overflow: visible !important; }
+          .doc-print-root { position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; }
         }
       `}</style>
       <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
