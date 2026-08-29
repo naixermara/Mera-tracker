@@ -4437,6 +4437,9 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
   const [consignmentStores, setConsignmentStores] = useState([]);
   const [creditStores, setCreditStores] = useState([]);
   const [bigcoStores, setBigcoStores] = useState([]);
+  const [salespeople, setSalespeople] = useState([]);
+  const [showAddSalesperson, setShowAddSalesperson] = useState(false);
+  const [newSalespersonName, setNewSalespersonName] = useState("");
   const [saveError, setSaveError] = useState(false);
   const [showNewDN, setShowNewDN] = useState(false);
   const [printingDoc, setPrintingDoc] = useState(null); // { type: 'dn'|'invoice', data }
@@ -4465,18 +4468,20 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
   useEffect(() => {
     (async () => {
       try {
-        const [dnRows, invRows, storeRows, creditRows, bigcoRows] = await Promise.all([
+        const [dnRows, invRows, storeRows, creditRows, bigcoRows, salespeopleRows] = await Promise.all([
           sbFetch("delivery_notes?select=*&order=created_at.desc"),
           sbFetch("sales_invoices?select=*&order=created_at.desc"),
           sbFetch("stores?select=id,name,phone,email,address"),
           sbFetch("credit_stores?select=id,name,phone,email,address"),
           sbFetch("bigco_stores?select=id,name,phone,email,address"),
+          sbFetch("salespeople?select=*&order=name.asc"),
         ]);
         setNotes(dnRows || []);
         setInvoices(invRows || []);
         setConsignmentStores(storeRows || []);
         setCreditStores(creditRows || []);
         setBigcoStores(bigcoRows || []);
+        setSalespeople((salespeopleRows || []).map((r) => r.name));
       } catch (e) {
         setSaveError(true);
       } finally {
@@ -4498,6 +4503,22 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
     return `${prefix}${year}-${String(num).padStart(4, "0")}`;
   }
 
+  function nextDNNumber() {
+    // Starts at CH2026-00004450. The year resets the sequence each year (for tax records), and
+    // the running number continues from the highest CH<year>-######## found for that year.
+    const START = 4450;
+    const year = new Date().getFullYear();
+    const yearPrefix = `CH${year}-`;
+    const existingNums = notes
+      .map((n) => n.dn_number)
+      .filter((n) => n && n.startsWith(yearPrefix))
+      .map((n) => parseInt(n.slice(yearPrefix.length), 10))
+      .filter((n) => !isNaN(n));
+    const highest = existingNums.length ? Math.max(...existingNums) : START - 1;
+    const next = Math.max(highest + 1, START);
+    return `${yearPrefix}${String(next).padStart(8, "0")}`;
+  }
+
   function nextOrderNo() {
     // Starts at SO009518 and counts up from whichever SO0##### number is highest so far —
     // covers both our own auto-generated numbers and any store-supplied SO numbers already logged.
@@ -4509,6 +4530,21 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
     const highest = existingNums.length ? Math.max(...existingNums) : START - 1;
     const next = Math.max(highest + 1, START);
     return `SO${String(next).padStart(6, "0")}`;
+  }
+
+  async function addSalesperson(name) {
+    const trimmed = name.trim();
+    if (!trimmed || salespeople.includes(trimmed)) return trimmed;
+    try {
+      await sbFetch("salespeople", {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed }),
+      });
+      setSalespeople((prev) => [...prev, trimmed].sort());
+      return trimmed;
+    } catch (e) {
+      return trimmed;
+    }
   }
 
   async function createNewStoreFor(businessType, form) {
@@ -4562,7 +4598,7 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
       }
       if (!storeId || !storeName) return false;
 
-      const dnNumber = nextNumber("CH", notes, "dn_number");
+      const dnNumber = nextDNNumber();
       const [inserted] = await sbFetch("delivery_notes", {
         method: "POST",
         body: JSON.stringify({
@@ -4911,9 +4947,53 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
               </div>
               <div>
                 <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Sale rep</label>
-                <input type="text" value={dnForm.saleRep} onChange={(e) => setDnForm({ ...dnForm, saleRep: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+                <select
+                  value={dnForm.saleRep}
+                  onChange={(e) => {
+                    if (e.target.value === "__new__") {
+                      setNewSalespersonName("");
+                      setShowAddSalesperson(true);
+                    } else {
+                      setDnForm({ ...dnForm, saleRep: e.target.value });
+                    }
+                  }}
+                  style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }}
+                >
+                  <option value="">Select…</option>
+                  {salespeople.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                  <option value="__new__">+ New salesperson</option>
+                </select>
               </div>
             </div>
+
+            {showAddSalesperson && (
+              <div style={{ background: C.bg2, border: `1px solid ${C.gold}`, borderRadius: 8, padding: 10, marginBottom: 14 }}>
+                <label style={{ fontSize: 9, color: C.textFaint }}>New salesperson name</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={newSalespersonName}
+                  onChange={(e) => setNewSalespersonName(e.target.value)}
+                  style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: C.surface, color: C.text, marginBottom: 8 }}
+                />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const name = await addSalesperson(newSalespersonName);
+                      setDnForm({ ...dnForm, saleRep: name });
+                      setShowAddSalesperson(false);
+                    }}
+                    style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
+                  >
+                    Add
+                  </button>
+                  <button type="button" onClick={() => setShowAddSalesperson(false)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
+                </div>
+              </div>
+            )}
 
             <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 8, textTransform: "uppercase" }}>Products</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 4 }}>
