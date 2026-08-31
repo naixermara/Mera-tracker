@@ -4491,6 +4491,7 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
     newStoreDay: "1", newStoreFirstSent: new Date().toISOString().slice(0, 10),
     newStoreCreditDays: "30",
     customerPhone: "", customerEmail: "", customerAddress: "",
+    sendTo: "",
     dnNumber: "",
     orderNo: "",
     issuedDate: new Date().toISOString().slice(0, 10),
@@ -4645,6 +4646,7 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
           customer_phone: dnForm.customerPhone,
           customer_email: dnForm.customerEmail,
           customer_address: dnForm.customerAddress,
+          send_to: dnForm.sendTo,
           business_type: dnForm.businessType,
           store_id: storeId,
           issued_date: dnForm.issuedDate,
@@ -5062,6 +5064,11 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
             <div style={{ fontSize: 10, color: C.textFaint, marginBottom: 14 }}>Price won't show on the printed delivery note — it carries over automatically when you generate an invoice.</div>
 
             <div style={{ marginBottom: 18, marginTop: 10 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Send to (ផ្ញើទៅ) — optional</label>
+              <input type="text" value={dnForm.sendTo} onChange={(e) => setDnForm({ ...dnForm, sendTo: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
+            </div>
+
+            <div style={{ marginBottom: 18, marginTop: 10 }}>
               <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
               <textarea value={dnForm.notes} onChange={(e) => setDnForm({ ...dnForm, notes: e.target.value })} style={{ width: "100%", minHeight: 55, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
             </div>
@@ -5144,6 +5151,7 @@ function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, 
           customer_name: dn.customer_name,
           customer_phone: dn.customer_phone,
           customer_address: dn.customer_address,
+          send_to: dn.send_to,
           vat_tin: form.vatTin,
           order_no: dn.order_no,
           invoice_date: dn.sale_date,
@@ -5293,15 +5301,35 @@ function buildDocSection(doc) {
   const allBorders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder };
   const noBorders = { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } };
 
-  const headerChildren = [
-    new Paragraph({
-      children: [new ImageRun({ data: logoBytes, type: "png", transformation: { width: 130, height: 130 } })],
-    }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 60 }, children: [new TextRun({ text: "ជំហានត្រេឌីង ឯ.ក", bold: true, size: 52 })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ", size: 20 })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031", size: 20 })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: "លេខការិយាល័យ៖ 081 882 982", size: 20 })] }),
-  ];
+  const headerTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: noBorders,
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 20, type: WidthType.PERCENTAGE },
+            borders: noBorders,
+            verticalAlign: VerticalAlign.CENTER,
+            children: [new Paragraph({ children: [new ImageRun({ data: logoBytes, type: "png", transformation: { width: 70, height: 70 } })] })],
+          }),
+          new TableCell({
+            width: { size: 80, type: WidthType.PERCENTAGE },
+            borders: noBorders,
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "ជំហានត្រេឌីង ឯ.ក", bold: true, size: 44 })] }),
+              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ", size: 18 })] }),
+              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031", size: 18 })] }),
+              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "លេខការិយាល័យ៖ 081 882 982", size: 18 })] }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+
+  const headerChildren = [headerTable, new Paragraph({ text: "", spacing: { after: 100 } })];
 
   if (khmerTitle) {
     headerChildren.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: khmerTitle, bold: true, underline: {}, size: 26 })] }));
@@ -5321,6 +5349,7 @@ function buildDocSection(doc) {
               new Paragraph({ children: [new TextRun({ text: `ឈ្មោះ${isDN ? "" : "អតិថិជន"} : `, bold: true }), new TextRun(d.customer_name || "")] }),
               ...(d.customer_address ? [new Paragraph({ children: [new TextRun({ text: "អាសយដ្ឋាន : ", bold: true }), new TextRun(d.customer_address)] })] : []),
               ...(d.customer_phone ? [new Paragraph({ children: [new TextRun({ text: "លេខទូរស័ព្ទ: ", bold: true }), new TextRun(d.customer_phone)] })] : []),
+              ...(d.send_to ? [new Paragraph({ children: [new TextRun({ text: "ផ្ញើទៅ: ", bold: true }), new TextRun(d.send_to)] })] : []),
               ...(!isDN && d.vat_tin ? [new Paragraph({ children: [new TextRun({ text: "លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ ", bold: true }), new TextRun(d.vat_tin)] })] : []),
             ],
           }),
@@ -5493,15 +5522,14 @@ function SingleDocument({ d, isDN, pageBreak }) {
   return (
     <div style={{ maxWidth: 850, margin: "0 auto", padding: "12px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
-        <div style={{ marginBottom: 4 }}>
-          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 160, height: 160, objectFit: "contain" }} />
-        </div>
-
-        <div style={{ textAlign: "center", marginBottom: 16, marginTop: 0 }}>
-          <div style={{ fontSize: 34, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
-          <div style={{ fontSize: 14, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
-          <div style={{ fontSize: 14, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
-          <div style={{ fontSize: 14, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 70, height: 70, objectFit: "contain", flexShrink: 0 }} />
+          <div style={{ textAlign: "center", flex: 1 }}>
+            <div style={{ fontSize: 28, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
+            <div style={{ fontSize: 12, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
+            <div style={{ fontSize: 12, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
+            <div style={{ fontSize: 12, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
+          </div>
         </div>
 
         <div style={{ textAlign: "center", marginBottom: 16 }}>
@@ -5516,6 +5544,7 @@ function SingleDocument({ d, isDN, pageBreak }) {
                 <div><b>ឈ្មោះ{isDN ? "" : "អតិថិជន"} :</b> {d.customer_name}</div>
                 {(d.customer_address) && <div style={{ marginTop: 2 }}><b>អាសយដ្ឋាន :</b> {d.customer_address}</div>}
                 {(d.customer_phone) && <div style={{ marginTop: 2 }}><b>លេខទូរស័ព្ទ:</b> {d.customer_phone}</div>}
+                {(d.send_to) && <div style={{ marginTop: 2 }}><b>ផ្ញើទៅ:</b> {d.send_to}</div>}
                 {!isDN && (
                   <div style={{ marginTop: 2 }}>
                     <b>ការទូទាត់តាមកាលកំណត់:</b>{" "}
