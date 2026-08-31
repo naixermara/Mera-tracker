@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Wallet, Calendar, ClipboardList, Sparkles, Trash2, LogOut } from "lucide-react";
 
 const SUPABASE_URL = "https://idkjsxrqaklyhidptaon.supabase.co";
@@ -816,8 +817,7 @@ export default function MeraConsignmentApp() {
         input, select, textarea { font-family: inherit; }
         ::placeholder { color: ${C.textFaint}; }
         @media print {
-          .mera-app-root > *:not(:has(.doc-print-root)) { display: none !important; }
-          .mera-app-root { min-height: auto !important; background: #fff !important; padding-bottom: 0 !important; }
+          body:has(.doc-print-root) .mera-app-root { display: none !important; }
         }
         .daycell { transition: all 0.15s ease; }
         .daycell:hover { transform: translateY(-2px); border-color: ${C.gold} !important; }
@@ -5439,8 +5439,8 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
   const showBothPages = !isDN && linkedDN;
   const docNumber = isDN ? invoiceData.dn_number : invoiceData.invoice_number;
 
-  return (
-    <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, overflowY: "auto" }}>
+  return createPortal(
+    <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
       <style>{`
         @media print {
           .doc-no-print { display: none !important; }
@@ -5460,7 +5460,8 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
 
       {showBothPages && <SingleDocument d={linkedDN} isDN={true} pageBreak={true} />}
       <SingleDocument d={invoiceData} isDN={isDN} pageBreak={false} />
-    </div>
+    </div>,
+    document.body
   );
 }
 
