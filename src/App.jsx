@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Wallet, Calendar, ClipboardList, Sparkles, Trash2, LogOut } from "lucide-react";
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, AlignmentType, WidthType, BorderStyle, VerticalAlign, ShadingType } from "docx";
 
 const SUPABASE_URL = "https://idkjsxrqaklyhidptaon.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Y-yZsch-GC8QNXYY8ja-dA_MaBE4El0";
@@ -5257,6 +5258,219 @@ function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, 
 }
 
 
+function base64ToUint8Array(base64) {
+  const raw = base64.split(",")[1] || base64;
+  const binary = atob(raw);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function buildDocSection(doc) {
+  const isDN = doc.type === "dn";
+  const d = doc.data;
+  const logoBytes = base64ToUint8Array(CHOUMHEAN_LOGO);
+
+  const products = [
+    { code: "8849308071235", label: "Mera Panty Liner (ប្រចាំថ្ងៃ)", qty: Number(d.pl_qty || 0), price: Number(d.pl_price || 0) },
+    { code: "8849308071259", label: "Mera for night time(យប់)", qty: Number(d.night_qty || 0), price: Number(d.night_price || 0) },
+    { code: "8849308071242", label: "Mera for day(ថ្ងៃ)", qty: Number(d.day_qty || 0), price: Number(d.day_price || 0) },
+  ].filter((p) => p.qty > 0);
+
+  const subtotal = products.reduce((a, p) => a + p.qty * p.price, 0);
+  const discountAmt = isDN ? 0 : subtotal * ((Number(d.discount_percent) || 0) / 100);
+  const afterDiscount = subtotal - discountAmt;
+  const vatAmt = !isDN && d.invoice_type === "tax" ? afterDiscount * ((Number(d.vat_percent) || 0) / 100) : 0;
+  const grandTotal = afterDiscount + vatAmt;
+  const rielTotal = !isDN ? grandTotal * (Number(d.exchange_rate) || 4046) : 0;
+
+  const title = isDN ? "DELIVERY NOTE" : d.invoice_type === "tax" ? "TAX INVOICE" : d.invoice_type === "consignment" ? "CONSINGNMENT NOTE" : "COMMERCIAL INVOICE";
+  const khmerTitle = isDN ? "ប័ណ្ណបញ្ជូនទំនិញទៅអតិថិជន" : d.invoice_type === "tax" ? "វិក្កយបត្រអាករ" : d.invoice_type === "consignment" ? "" : "វិក្កយបត្រ";
+  const docNumber = isDN ? d.dn_number : d.invoice_number;
+  const docDate = isDN ? d.sale_date : d.invoice_date;
+
+  const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: "000000" };
+  const allBorders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder };
+  const noBorders = { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } };
+
+  const headerChildren = [
+    new Paragraph({
+      children: [new ImageRun({ data: logoBytes, type: "png", transformation: { width: 130, height: 130 } })],
+    }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 60 }, children: [new TextRun({ text: "ជំហានត្រេឌីង ឯ.ក", bold: true, size: 52 })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ", size: 20 })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031", size: 20 })] }),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: "លេខការិយាល័យ៖ 081 882 982", size: 20 })] }),
+  ];
+
+  if (khmerTitle) {
+    headerChildren.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: khmerTitle, bold: true, underline: {}, size: 26 })] }));
+  }
+  headerChildren.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: title, bold: true, underline: isDN || d.invoice_type === "consignment" ? {} : undefined, size: 24 })] }));
+
+  const infoTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: 55, type: WidthType.PERCENTAGE },
+            borders: allBorders,
+            margins: { top: 100, bottom: 100, left: 100, right: 100 },
+            children: [
+              new Paragraph({ children: [new TextRun({ text: `ឈ្មោះ${isDN ? "" : "អតិថិជន"} : `, bold: true }), new TextRun(d.customer_name || "")] }),
+              ...(d.customer_address ? [new Paragraph({ children: [new TextRun({ text: "អាសយដ្ឋាន : ", bold: true }), new TextRun(d.customer_address)] })] : []),
+              ...(d.customer_phone ? [new Paragraph({ children: [new TextRun({ text: "លេខទូរស័ព្ទ: ", bold: true }), new TextRun(d.customer_phone)] })] : []),
+              ...(!isDN && d.vat_tin ? [new Paragraph({ children: [new TextRun({ text: "លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ ", bold: true }), new TextRun(d.vat_tin)] })] : []),
+            ],
+          }),
+          new TableCell({
+            width: { size: 45, type: WidthType.PERCENTAGE },
+            borders: allBorders,
+            margins: { top: 100, bottom: 100, left: 100, right: 100 },
+            children: [
+              new Paragraph({ children: [new TextRun({ text: `${isDN ? "DN:" : "លេខវិក្កយបត្រ:"} `, bold: true }), new TextRun(String(docNumber || ""))] }),
+              ...(d.order_no ? [new Paragraph({ children: [new TextRun({ text: `${isDN ? "Order No :" : "លេខបញ្ជាទិញ:"} `, bold: true }), new TextRun(d.order_no)] })] : []),
+              new Paragraph({ children: [new TextRun({ text: `${isDN ? "Sale Date :" : "កាលបរិច្ឆេទលក់:"} `, bold: true }), new TextRun(docDate ? new Date(docDate + "T00:00:00").toLocaleDateString("en-GB") : "")] }),
+              new Paragraph({ children: [new TextRun({ text: `${isDN ? "Issued By :" : "ចេញដោយ:"} `, bold: true }), new TextRun(d.issued_by || "")] }),
+              new Paragraph({ children: [new TextRun({ text: `${isDN ? "Sale Rep :" : "តំណាងលក់:"} `, bold: true }), new TextRun(d.sale_rep || "")] }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+
+  const headCells = ["No", "Barcode", "Description", "UM", "Qty"];
+  if (!isDN) headCells.push("Price", "Discount", "Amount");
+  const colWidths = isDN ? [8, 20, 42, 10, 10] : [6, 15, 29, 8, 8, 10, 10, 14];
+
+  const productRows = [
+    new TableRow({
+      tableHeader: true,
+      children: headCells.map((h, i) => new TableCell({
+        width: { size: colWidths[i], type: WidthType.PERCENTAGE },
+        borders: allBorders,
+        shading: { type: ShadingType.CLEAR, fill: "F2F2F2" },
+        margins: { top: 60, bottom: 60, left: 60, right: 60 },
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 20 })] })],
+      })),
+    }),
+    ...products.map((p, i) => new TableRow({
+      children: [
+        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(i + 1), size: 20 })] })] }),
+        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: p.code, size: 20 })] })] }),
+        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ children: [new TextRun({ text: p.label, size: 20 })] })] }),
+        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Box", size: 20 })] })] }),
+        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(p.qty), size: 20 })] })] }),
+        ...(!isDN ? [
+          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `$${p.price.toFixed(2)}`, size: 20 })] })] }),
+          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "%0", size: 20 })] })] }),
+          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `$${(p.qty * p.price).toFixed(2)}`, size: 20 })] })] }),
+        ] : []),
+      ],
+    })),
+    ...Array.from({ length: Math.max(0, 5 - products.length) }).map(() => new TableRow({
+      children: headCells.map(() => new TableCell({ borders: allBorders, margins: { top: 160, bottom: 160 }, children: [new Paragraph("")] })),
+    })),
+  ];
+
+  const productTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: productRows });
+
+  const footerChildren = [];
+  if (isDN) {
+    footerChildren.push(new Paragraph({
+      spacing: { before: 200, after: 200 },
+      tabStops: [{ type: "right", position: 9000 }],
+      children: [
+        new TextRun(`- Payment Method : ${d.payment_method || "—"}`),
+        new TextRun({ text: `\tTotal Qty : ${products.reduce((a, p) => a + p.qty, 0)}`, bold: true }),
+      ],
+    }));
+  } else {
+    const totalsRows = [
+      ["សរុប / Sub-Total :", `$${subtotal.toFixed(2)}`, false],
+      [`ចុះថ្លៃ / Discount (${Number(d.discount_percent || 0)}%):`, `$${discountAmt.toFixed(2)}`, false],
+    ];
+    if (d.invoice_type === "tax") totalsRows.push([`VAT (${Number(d.vat_percent || 0)}%)`, `$${vatAmt.toFixed(2)}`, false]);
+    totalsRows.push(["សរុបចុងក្រោយ/ Grand Total($):", `$${grandTotal.toFixed(2)}`, true]);
+    totalsRows.push(["សរុបចុងក្រោយ/ Grand Total(៛):", `៛${Math.round(rielTotal).toLocaleString()}`, true]);
+
+    footerChildren.push(new Table({
+      alignment: AlignmentType.RIGHT,
+      width: { size: 45, type: WidthType.PERCENTAGE },
+      rows: totalsRows.map(([label, val, bold]) => new TableRow({
+        children: [
+          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 100, right: 100 }, children: [new Paragraph({ children: [new TextRun({ text: label, bold })] })] }),
+          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 100, right: 100 }, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: val, bold })] })] }),
+        ],
+      })),
+    }));
+    footerChildren.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 100, after: 200 }, children: [new TextRun({ text: `អត្រាប្តូរប្រាក់គិតតាមធនាគារជាតិ 1$ = ${Number(d.exchange_rate || 4046).toLocaleString()}៛`, size: 18 })] }));
+  }
+
+  footerChildren.push(new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: isDN ? "" : "បញ្ជាក់:", bold: true })] }));
+  footerChildren.push(new Paragraph("- សូមពិនិត្យទំនិញអោយបានត្រឹមត្រូវមុននឹងទទួលទំនិញ។"));
+  if (d.invoice_type === "consignment") {
+    footerChildren.push(new Paragraph("- ក្រុមហ៊ុននឹងធ្វើការទទួលយកទំនិញមកវិញនៅពេលអតិថិជនមិនអាចលក់បាន។"));
+    footerChildren.push(new Paragraph("- ទំនិញដែលលក់បានចាប់ពី 20$ឡើងទៅក្រុមហ៊ុនស្នើសុំធ្វើការទូទាត់ទឹកប្រាក់។"));
+  }
+  if (d.notes) footerChildren.push(new Paragraph({ spacing: { before: 100 }, children: [new TextRun(d.notes)] }));
+
+  footerChildren.push(new Paragraph({ spacing: { before: 400 }, text: "" }));
+  footerChildren.push(new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: noBorders,
+    rows: [
+      new TableRow({
+        children: ["អ្នកប្រគល់", "អ្នកដឹក", "អ្នកទទួល"].map((label) => new TableCell({
+          borders: noBorders,
+          width: { size: 33, type: WidthType.PERCENTAGE },
+          margins: { top: 300 },
+          children: [
+            new Paragraph({ border: { top: cellBorder }, alignment: AlignmentType.CENTER, children: [new TextRun(label)] }),
+          ],
+        })),
+      }),
+    ],
+  }));
+
+  if (!isDN) {
+    footerChildren.push(new Paragraph({ spacing: { before: 300 }, border: { top: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" } }, children: [new TextRun({ text: "ABA PAY", bold: true, size: 24 })] }));
+    footerChildren.push(new Paragraph({ children: [new TextRun({ text: "CHOUMHEAN TRADING CO., LTD.", size: 18 })] }));
+    footerChildren.push(new Paragraph({ children: [new TextRun({ text: "Account number: 555 666 798", size: 18 })] }));
+    footerChildren.push(new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: "081 882 982", size: 18 })] }));
+    footerChildren.push(new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: "មេរា-Mera", size: 18 })] }));
+  }
+
+  return {
+    properties: { page: { margins: { top: 300, bottom: 700, left: 700, right: 700 } } },
+    children: [...headerChildren, infoTable, new Paragraph(""), productTable, new Paragraph(""), ...footerChildren],
+  };
+}
+
+async function exportDocToWord(doc, linkedDN) {
+  const isDN = doc.type === "dn";
+  const showBoth = !isDN && linkedDN;
+  const docNumber = isDN ? doc.data.dn_number : doc.data.invoice_number;
+
+  const sections = [];
+  if (showBoth) sections.push(buildDocSection({ type: "dn", data: linkedDN }));
+  sections.push(buildDocSection(doc));
+
+  const docx = new Document({ sections });
+  const blob = await Packer.toBlob(docx);
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${docNumber || "document"}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function SingleDocument({ d, isDN, pageBreak }) {
   const products = [
     { code: "8849308071235", label: "Mera Panty Liner (ប្រចាំថ្ងៃ)", qty: Number(d.pl_qty || 0), price: Number(d.pl_price || 0) },
@@ -5277,17 +5491,17 @@ function SingleDocument({ d, isDN, pageBreak }) {
   const docDate = isDN ? d.sale_date : d.invoice_date;
 
   return (
-    <div style={{ maxWidth: 850, margin: "0 auto", padding: "2px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
+    <div style={{ maxWidth: 850, margin: "0 auto", padding: "12px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
         <div style={{ marginBottom: 4 }}>
-          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 190, height: 190, objectFit: "contain" }} />
+          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 160, height: 160, objectFit: "contain" }} />
         </div>
 
         <div style={{ textAlign: "center", marginBottom: 16, marginTop: 0 }}>
-          <div style={{ fontSize: 30, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
-          <div style={{ fontSize: 18, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
-          <div style={{ fontSize: 18, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
-          <div style={{ fontSize: 18, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
+          <div style={{ fontSize: 34, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
+          <div style={{ fontSize: 14, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
+          <div style={{ fontSize: 14, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
+          <div style={{ fontSize: 14, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
         </div>
 
         <div style={{ textAlign: "center", marginBottom: 16 }}>
@@ -5438,6 +5652,18 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
   const invoiceData = doc.data;
   const showBothPages = !isDN && linkedDN;
   const docNumber = isDN ? invoiceData.dn_number : invoiceData.invoice_number;
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExportWord() {
+    setExporting(true);
+    try {
+      await exportDocToWord(doc, linkedDN);
+    } catch (err) {
+      alert("Could not export to Word: " + (err?.message || err));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return createPortal(
     <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
@@ -5453,6 +5679,7 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
           Print preview — {docNumber}{showBothPages ? ` (with ${linkedDN.dn_number})` : ""}
         </span>
         <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={handleExportWord} disabled={exporting} style={{ background: "#3B5BA9", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#fff", cursor: exporting ? "default" : "pointer", opacity: exporting ? 0.7 : 1 }}>{exporting ? "Exporting…" : "Export to Word"}</button>
           <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
           <button onClick={onClose} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
         </div>
