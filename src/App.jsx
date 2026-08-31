@@ -5352,9 +5352,9 @@ function SingleDocument({ d, isDN, pageBreak }) {
         breakInside: "avoid",
       }}
     >
-      <div ref={innerRef} style={{ width: PAGE_W, minHeight: PAGE_H, display: "flex", flexDirection: "column", transform: `scale(${scale})`, transformOrigin: "top left" }}>
+      <div ref={innerRef} style={{ width: PAGE_W, boxSizing: "border-box", padding: "16px 30px 18px 30px", transform: `scale(${scale})`, transformOrigin: "top left" }}>
 
-        <div style={{ position: "relative", marginBottom: 10, minHeight: 92, flexShrink: 0 }}>
+        <div style={{ position: "relative", marginBottom: 10, minHeight: 92 }}>
           <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 90, height: 90, objectFit: "contain", position: "absolute", left: 0, top: 0 }} />
           <div style={{ textAlign: "center", padding: "0 100px" }}>
             <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.3 }}>ជំហានត្រេឌីង ឯ.ក</div>
@@ -5364,12 +5364,12 @@ function SingleDocument({ d, isDN, pageBreak }) {
           </div>
         </div>
 
-        <div style={{ textAlign: "center", marginBottom: 10, flexShrink: 0 }}>
+        <div style={{ textAlign: "center", marginBottom: 10 }}>
           {khmerTitle && <div style={{ fontSize: 16, fontWeight: 700, textDecoration: "underline", lineHeight: 1.4 }}>{khmerTitle}</div>}
           <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4, textDecoration: isDN || d.invoice_type === "consignment" ? "underline" : "none" }}>{title}</div>
         </div>
 
-        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 10, fontSize: 11, flexShrink: 0 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 10, fontSize: 11 }}>
           <tbody>
             <tr>
               <td style={{ ...cell, width: "55%", verticalAlign: "top" }}>
@@ -5398,7 +5398,7 @@ function SingleDocument({ d, isDN, pageBreak }) {
           </tbody>
         </table>
 
-        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 10, fontSize: 11, flexShrink: 0 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 10, fontSize: 11 }}>
           <thead>
             <tr style={{ background: "#f2f2f2" }}>
               <th style={th}>No</th>
@@ -5442,12 +5442,12 @@ function SingleDocument({ d, isDN, pageBreak }) {
         </table>
 
         {isDN ? (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, fontSize: 11, flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, fontSize: 11 }}>
             <div>- Payment Method : {d.payment_method || "—"}</div>
             <div><b>Total Qty :</b> {products.reduce((a, p) => a + p.qty, 0)}</div>
           </div>
         ) : (
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6, flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
             <table style={{ borderCollapse: "collapse", fontSize: 11, width: 320 }}>
               <tbody>
                 <tr><td style={{ ...cell, padding: "4px 8px" }}>សរុប / Sub-Total :</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${subtotal.toFixed(2)}</td></tr>
@@ -5462,12 +5462,12 @@ function SingleDocument({ d, isDN, pageBreak }) {
           </div>
         )}
         {!isDN && (
-          <div style={{ textAlign: "right", fontSize: 10, color: "#333", marginBottom: 12, flexShrink: 0 }}>
+          <div style={{ textAlign: "right", fontSize: 10, color: "#333", marginBottom: 12 }}>
             អត្រាប្តូរប្រាក់គិតតាមធនាគារជាតិ 1$ = {Number(d.exchange_rate || 4046).toLocaleString()}៛
           </div>
         )}
 
-        <div style={{ fontSize: 10.5, marginBottom: 16, lineHeight: 1.5, flexShrink: 0 }}>
+        <div style={{ fontSize: 10.5, marginBottom: 16, lineHeight: 1.5 }}>
           <b>{isDN ? "" : "បញ្ជាក់:"}</b>
           <div>- សូមពិនិត្យទំនិញអោយបានត្រឹមត្រូវមុននឹងទទួលទំនិញ។</div>
           {d.invoice_type === "consignment" && (
@@ -5479,19 +5479,17 @@ function SingleDocument({ d, isDN, pageBreak }) {
           {d.notes && <div style={{ marginTop: 4 }}>{d.notes}</div>}
         </div>
 
-        {/* signatures + bank details pinned to the bottom of the page */}
-        <div style={{ marginTop: "auto", flexShrink: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, marginTop: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18, marginTop: 14 }}>
           <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
-            <div style={{ height: 70 }} />
+            <div style={{ height: 58 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកប្រគល់</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
-            <div style={{ height: 70 }} />
+            <div style={{ height: 58 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកដឹក</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
-            <div style={{ height: 70 }} />
+            <div style={{ height: 58 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកទទួល</div>
           </div>
         </div>
@@ -5509,7 +5507,6 @@ function SingleDocument({ d, isDN, pageBreak }) {
             </div>
           </div>
         )}
-        </div>
       </div>
     </div>
   );
