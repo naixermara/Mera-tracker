@@ -5479,17 +5479,17 @@ function SingleDocument({ d, isDN, pageBreak }) {
           {d.notes && <div style={{ marginTop: 4 }}>{d.notes}</div>}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18, marginTop: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, marginTop: 24 }}>
           <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
-            <div style={{ height: 105 }} />
+            <div style={{ height: 150 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកប្រគល់</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
-            <div style={{ height: 105 }} />
+            <div style={{ height: 150 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកដឹក</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
-            <div style={{ height: 105 }} />
+            <div style={{ height: 150 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកទទួល</div>
           </div>
         </div>
