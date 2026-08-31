@@ -4482,8 +4482,6 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [genInvoiceFor, setGenInvoiceFor] = useState(null); // delivery note being turned into an invoice
-  const [showPickDN, setShowPickDN] = useState(false);
-  const [dnPickerQuery, setDnPickerQuery] = useState("");
 
   const emptyDNForm = {
     storeMode: "existing", // "existing" or "new"
@@ -4744,12 +4742,6 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
             {selectMode ? "Cancel" : "Select"}
           </button>
           <button
-            onClick={() => { setDnPickerQuery(""); setShowPickDN(true); }}
-            style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
-          >
-            <Plus size={16} /> Generate invoice
-          </button>
-          <button
             onClick={() => { setDnForm({ ...emptyDNForm, dnNumber: nextDNNumber(), orderNo: nextOrderNo() }); setShowNewDN(true); }}
             className="primarybtn"
             style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
@@ -4758,42 +4750,6 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
           </button>
         </div>
       </div>
-
-      {showPickDN && (
-        <div onClick={() => setShowPickDN(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 420, maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 20, margin: 0, fontWeight: 600 }}>Pick a delivery note</h2>
-              <button onClick={() => setShowPickDN(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
-            </div>
-            <input
-              type="text"
-              autoFocus
-              value={dnPickerQuery}
-              onChange={(e) => setDnPickerQuery(e.target.value)}
-              placeholder="Search by DN number or customer…"
-              style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text, marginBottom: 12 }}
-            />
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {notes
-                .filter((n) => !dnPickerQuery.trim() || n.dn_number.toLowerCase().includes(dnPickerQuery.toLowerCase()) || n.customer_name.toLowerCase().includes(dnPickerQuery.toLowerCase()))
-                .slice(0, 20)
-                .map((n) => (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={() => { setShowPickDN(false); setGenInvoiceFor(n); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", cursor: "pointer" }}
-                  >
-                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{n.dn_number}</div>
-                    <div style={{ fontSize: 11, color: C.textFaint }}>{n.customer_name}</div>
-                  </button>
-                ))}
-              {notes.length === 0 && <div style={{ fontSize: 13, color: C.textFaint, textAlign: "center", padding: "20px 0" }}>No delivery notes yet.</div>}
-            </div>
-          </div>
-        </div>
-      )}
 
       {saveError && (
         <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
