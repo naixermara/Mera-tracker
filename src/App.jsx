@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Wallet, Calendar, ClipboardList, Sparkles, Trash2, LogOut } from "lucide-react";
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, AlignmentType, WidthType, BorderStyle, VerticalAlign, ShadingType } from "docx";
 
 const SUPABASE_URL = "https://idkjsxrqaklyhidptaon.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Y-yZsch-GC8QNXYY8ja-dA_MaBE4El0";
@@ -4479,6 +4478,9 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
   const [saveError, setSaveError] = useState(false);
   const [showNewDN, setShowNewDN] = useState(false);
   const [printingDoc, setPrintingDoc] = useState(null); // { type: 'dn'|'invoice', data }
+  const [printingMulti, setPrintingMulti] = useState(null); // array of { type, data, linkedDN? }
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [genInvoiceFor, setGenInvoiceFor] = useState(null); // delivery note being turned into an invoice
   const [showPickDN, setShowPickDN] = useState(false);
   const [dnPickerQuery, setDnPickerQuery] = useState("");
@@ -4698,6 +4700,14 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
 
   const invoicesForNote = (dnId) => invoices.filter((i) => i.delivery_note_id === dnId);
 
+  const toggleSelected = (key) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
@@ -4705,7 +4715,34 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
           <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Delivery &amp; Invoices</h2>
           <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Create a delivery note first, then generate the matching invoice from it</div>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {selectMode && selectedKeys.size > 0 && (
+            <button
+              onClick={() => {
+                const docs = [];
+                selectedKeys.forEach((key) => {
+                  const [kind, id] = key.split(":");
+                  if (kind === "dn") {
+                    const dn = notes.find((n) => n.id === id);
+                    if (dn) docs.push({ type: "dn", data: dn });
+                  } else if (kind === "inv") {
+                    const inv = invoices.find((i) => i.id === id);
+                    if (inv) docs.push({ type: "invoice", data: inv, linkedDN: notes.find((n) => n.id === inv.delivery_note_id) });
+                  }
+                });
+                setPrintingMulti(docs);
+              }}
+              style={{ background: C.gold, border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, color: "#1A1508", display: "flex", alignItems: "center", gap: 7 }}
+            >
+              Print Selected ({selectedKeys.size})
+            </button>
+          )}
+          <button
+            onClick={() => { setSelectMode((m) => !m); setSelectedKeys(new Set()); }}
+            style={{ background: selectMode ? C.bg2 : "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700 }}
+          >
+            {selectMode ? "Cancel" : "Select"}
+          </button>
           <button
             onClick={() => { setDnPickerQuery(""); setShowPickDN(true); }}
             style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.text, borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}
@@ -4778,12 +4815,22 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
             return (
               <div key={dn.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 13, padding: "14px 16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 15 }}>{dn.dn_number} · {dn.customer_name}</div>
-                    <div style={{ fontSize: 11, color: C.textFaint }}>
-                      {new Date(dn.sale_date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-                      {" · "}{dn.business_type === "credit" ? "Credit Term" : dn.business_type === "corporate" ? "Corporate Accounts" : "Consignment"}
-                      {linkedInvoices.length > 0 && ` · ${linkedInvoices.length} invoice${linkedInvoices.length === 1 ? "" : "s"} generated`}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    {selectMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedKeys.has(`dn:${dn.id}`)}
+                        onChange={() => toggleSelected(`dn:${dn.id}`)}
+                        style={{ marginTop: 4, width: 16, height: 16, cursor: "pointer" }}
+                      />
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 15 }}>{dn.dn_number} · {dn.customer_name}</div>
+                      <div style={{ fontSize: 11, color: C.textFaint }}>
+                        {new Date(dn.sale_date + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                        {" · "}{dn.business_type === "credit" ? "Credit Term" : dn.business_type === "corporate" ? "Corporate Accounts" : "Consignment"}
+                        {linkedInvoices.length > 0 && ` · ${linkedInvoices.length} invoice${linkedInvoices.length === 1 ? "" : "s"} generated`}
+                      </div>
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -4812,7 +4859,15 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 6 }}>
                     {linkedInvoices.map((inv) => (
                       <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: C.bg2, borderRadius: 8, padding: "8px 12px" }}>
-                        <span style={{ fontSize: 12, color: C.textDim }}>
+                        <span style={{ fontSize: 12, color: C.textDim, display: "flex", alignItems: "center", gap: 10 }}>
+                          {selectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedKeys.has(`inv:${inv.id}`)}
+                              onChange={() => toggleSelected(`inv:${inv.id}`)}
+                              style={{ width: 15, height: 15, cursor: "pointer" }}
+                            />
+                          )}
                           {inv.invoice_number} · {inv.invoice_type === "tax" ? "Tax Invoice" : inv.invoice_type === "consignment" ? "Consignment Note" : "Commercial Invoice"}
                         </span>
                         <div style={{ display: "flex", gap: 8 }}>
@@ -5111,6 +5166,13 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
           linkedDN={printingDoc.type === "invoice" ? notes.find((n) => n.id === printingDoc.data.delivery_note_id) : null}
         />
       )}
+
+      {printingMulti && (
+        <MultiDocumentPrintView
+          docs={printingMulti}
+          onClose={() => { setPrintingMulti(null); setSelectMode(false); setSelectedKeys(new Set()); }}
+        />
+      )}
     </div>
   );
 }
@@ -5265,240 +5327,6 @@ function GenerateInvoiceModal({ dn, C, authUser, sbFetch, nextNumber, invoices, 
   );
 }
 
-
-function base64ToUint8Array(base64) {
-  const raw = base64.split(",")[1] || base64;
-  const binary = atob(raw);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-function buildDocSection(doc) {
-  const isDN = doc.type === "dn";
-  const d = doc.data;
-  const logoBytes = base64ToUint8Array(CHOUMHEAN_LOGO);
-
-  const products = [
-    { code: "8849308071235", label: "Mera Panty Liner (ប្រចាំថ្ងៃ)", qty: Number(d.pl_qty || 0), price: Number(d.pl_price || 0) },
-    { code: "8849308071259", label: "Mera for night time(យប់)", qty: Number(d.night_qty || 0), price: Number(d.night_price || 0) },
-    { code: "8849308071242", label: "Mera for day(ថ្ងៃ)", qty: Number(d.day_qty || 0), price: Number(d.day_price || 0) },
-  ].filter((p) => p.qty > 0);
-
-  const subtotal = products.reduce((a, p) => a + p.qty * p.price, 0);
-  const discountAmt = isDN ? 0 : subtotal * ((Number(d.discount_percent) || 0) / 100);
-  const afterDiscount = subtotal - discountAmt;
-  const vatAmt = !isDN && d.invoice_type === "tax" ? afterDiscount * ((Number(d.vat_percent) || 0) / 100) : 0;
-  const grandTotal = afterDiscount + vatAmt;
-  const rielTotal = !isDN ? grandTotal * (Number(d.exchange_rate) || 4046) : 0;
-
-  const title = isDN ? "DELIVERY NOTE" : d.invoice_type === "tax" ? "TAX INVOICE" : d.invoice_type === "consignment" ? "CONSINGNMENT NOTE" : "COMMERCIAL INVOICE";
-  const khmerTitle = isDN ? "ប័ណ្ណបញ្ជូនទំនិញទៅអតិថិជន" : d.invoice_type === "tax" ? "វិក្កយបត្រអាករ" : d.invoice_type === "consignment" ? "" : "វិក្កយបត្រ";
-  const docNumber = isDN ? d.dn_number : d.invoice_number;
-  const docDate = isDN ? d.sale_date : d.invoice_date;
-
-  const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: "000000" };
-  const allBorders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder };
-  const noBorders = { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } };
-
-  const headerTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    borders: noBorders,
-    rows: [
-      new TableRow({
-        children: [
-          new TableCell({
-            width: { size: 20, type: WidthType.PERCENTAGE },
-            borders: noBorders,
-            verticalAlign: VerticalAlign.CENTER,
-            children: [new Paragraph({ children: [new ImageRun({ data: logoBytes, type: "png", transformation: { width: 100, height: 100 } })] })],
-          }),
-          new TableCell({
-            width: { size: 80, type: WidthType.PERCENTAGE },
-            borders: noBorders,
-            verticalAlign: VerticalAlign.CENTER,
-            children: [
-              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "ជំហានត្រេឌីង ឯ.ក", bold: true, size: 44 })] }),
-              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ", size: 18 })] }),
-              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031", size: 18 })] }),
-              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "លេខការិយាល័យ៖ 081 882 982", size: 18 })] }),
-            ],
-          }),
-        ],
-      }),
-    ],
-  });
-
-  const headerChildren = [headerTable, new Paragraph({ text: "", spacing: { after: 100 } })];
-
-  if (khmerTitle) {
-    headerChildren.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: khmerTitle, bold: true, underline: {}, size: 26 })] }));
-  }
-  headerChildren.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: title, bold: true, underline: isDN || d.invoice_type === "consignment" ? {} : undefined, size: 24 })] }));
-
-  const infoTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [
-      new TableRow({
-        children: [
-          new TableCell({
-            width: { size: 55, type: WidthType.PERCENTAGE },
-            borders: allBorders,
-            margins: { top: 100, bottom: 100, left: 100, right: 100 },
-            children: [
-              new Paragraph({ children: [new TextRun({ text: `ឈ្មោះ${isDN ? "" : "អតិថិជន"} : `, bold: true }), new TextRun(d.customer_name || "")] }),
-              ...(d.customer_address ? [new Paragraph({ children: [new TextRun({ text: "អាសយដ្ឋាន : ", bold: true }), new TextRun(d.customer_address)] })] : []),
-              ...(d.customer_phone ? [new Paragraph({ children: [new TextRun({ text: "លេខទូរស័ព្ទ: ", bold: true }), new TextRun(d.customer_phone)] })] : []),
-              ...(d.send_to ? [new Paragraph({ children: [new TextRun({ text: "ផ្ញើទៅ: ", bold: true }), new TextRun(d.send_to)] })] : []),
-              ...(!isDN && d.vat_tin ? [new Paragraph({ children: [new TextRun({ text: "លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ ", bold: true }), new TextRun(d.vat_tin)] })] : []),
-            ],
-          }),
-          new TableCell({
-            width: { size: 45, type: WidthType.PERCENTAGE },
-            borders: allBorders,
-            margins: { top: 100, bottom: 100, left: 100, right: 100 },
-            children: [
-              new Paragraph({ children: [new TextRun({ text: `${isDN ? "DN:" : "លេខវិក្កយបត្រ:"} `, bold: true }), new TextRun(String(docNumber || ""))] }),
-              ...(d.order_no ? [new Paragraph({ children: [new TextRun({ text: `${isDN ? "Order No :" : "លេខបញ្ជាទិញ:"} `, bold: true }), new TextRun(d.order_no)] })] : []),
-              new Paragraph({ children: [new TextRun({ text: `${isDN ? "Sale Date :" : "កាលបរិច្ឆេទលក់:"} `, bold: true }), new TextRun(docDate ? new Date(docDate + "T00:00:00").toLocaleDateString("en-GB") : "")] }),
-              new Paragraph({ children: [new TextRun({ text: `${isDN ? "Issued By :" : "ចេញដោយ:"} `, bold: true }), new TextRun(d.issued_by || "")] }),
-              new Paragraph({ children: [new TextRun({ text: `${isDN ? "Sale Rep :" : "តំណាងលក់:"} `, bold: true }), new TextRun(d.sale_rep || "")] }),
-            ],
-          }),
-        ],
-      }),
-    ],
-  });
-
-  const headCells = ["No", "Barcode", "Description", "UM", "Qty"];
-  if (!isDN) headCells.push("Price", "Discount", "Amount");
-  const colWidths = isDN ? [8, 20, 42, 10, 10] : [6, 15, 29, 8, 8, 10, 10, 14];
-
-  const productRows = [
-    new TableRow({
-      tableHeader: true,
-      children: headCells.map((h, i) => new TableCell({
-        width: { size: colWidths[i], type: WidthType.PERCENTAGE },
-        borders: allBorders,
-        shading: { type: ShadingType.CLEAR, fill: "F2F2F2" },
-        margins: { top: 60, bottom: 60, left: 60, right: 60 },
-        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 20 })] })],
-      })),
-    }),
-    ...products.map((p, i) => new TableRow({
-      children: [
-        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(i + 1), size: 20 })] })] }),
-        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: p.code, size: 20 })] })] }),
-        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ children: [new TextRun({ text: p.label, size: 20 })] })] }),
-        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Box", size: 20 })] })] }),
-        new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(p.qty), size: 20 })] })] }),
-        ...(!isDN ? [
-          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `$${p.price.toFixed(2)}`, size: 20 })] })] }),
-          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "%0", size: 20 })] })] }),
-          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 60, right: 60 }, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `$${(p.qty * p.price).toFixed(2)}`, size: 20 })] })] }),
-        ] : []),
-      ],
-    })),
-    ...Array.from({ length: Math.max(0, 5 - products.length) }).map(() => new TableRow({
-      children: headCells.map(() => new TableCell({ borders: allBorders, margins: { top: 160, bottom: 160 }, children: [new Paragraph("")] })),
-    })),
-  ];
-
-  const productTable = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: productRows });
-
-  const footerChildren = [];
-  if (isDN) {
-    footerChildren.push(new Paragraph({
-      spacing: { before: 200, after: 200 },
-      tabStops: [{ type: "right", position: 9000 }],
-      children: [
-        new TextRun(`- Payment Method : ${d.payment_method || "—"}`),
-        new TextRun({ text: `\tTotal Qty : ${products.reduce((a, p) => a + p.qty, 0)}`, bold: true }),
-      ],
-    }));
-  } else {
-    const totalsRows = [
-      ["សរុប / Sub-Total :", `$${subtotal.toFixed(2)}`, false],
-      [`ចុះថ្លៃ / Discount (${Number(d.discount_percent || 0)}%):`, `$${discountAmt.toFixed(2)}`, false],
-    ];
-    if (d.invoice_type === "tax") totalsRows.push([`VAT (${Number(d.vat_percent || 0)}%)`, `$${vatAmt.toFixed(2)}`, false]);
-    totalsRows.push(["សរុបចុងក្រោយ/ Grand Total($):", `$${grandTotal.toFixed(2)}`, true]);
-    totalsRows.push(["សរុបចុងក្រោយ/ Grand Total(៛):", `៛${Math.round(rielTotal).toLocaleString()}`, true]);
-
-    footerChildren.push(new Table({
-      alignment: AlignmentType.RIGHT,
-      width: { size: 45, type: WidthType.PERCENTAGE },
-      rows: totalsRows.map(([label, val, bold]) => new TableRow({
-        children: [
-          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 100, right: 100 }, children: [new Paragraph({ children: [new TextRun({ text: label, bold })] })] }),
-          new TableCell({ borders: allBorders, margins: { top: 60, bottom: 60, left: 100, right: 100 }, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: val, bold })] })] }),
-        ],
-      })),
-    }));
-    footerChildren.push(new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 100, after: 200 }, children: [new TextRun({ text: `អត្រាប្តូរប្រាក់គិតតាមធនាគារជាតិ 1$ = ${Number(d.exchange_rate || 4046).toLocaleString()}៛`, size: 18 })] }));
-  }
-
-  footerChildren.push(new Paragraph({ spacing: { before: 200 }, children: [new TextRun({ text: isDN ? "" : "បញ្ជាក់:", bold: true })] }));
-  footerChildren.push(new Paragraph("- សូមពិនិត្យទំនិញអោយបានត្រឹមត្រូវមុននឹងទទួលទំនិញ។"));
-  if (d.invoice_type === "consignment") {
-    footerChildren.push(new Paragraph("- ក្រុមហ៊ុននឹងធ្វើការទទួលយកទំនិញមកវិញនៅពេលអតិថិជនមិនអាចលក់បាន។"));
-    footerChildren.push(new Paragraph("- ទំនិញដែលលក់បានចាប់ពី 20$ឡើងទៅក្រុមហ៊ុនស្នើសុំធ្វើការទូទាត់ទឹកប្រាក់។"));
-  }
-  if (d.notes) footerChildren.push(new Paragraph({ spacing: { before: 100 }, children: [new TextRun(d.notes)] }));
-
-  footerChildren.push(new Paragraph({ spacing: { before: 1100 }, text: "" }));
-  footerChildren.push(new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    borders: noBorders,
-    rows: [
-      new TableRow({
-        children: ["អ្នកប្រគល់", "អ្នកដឹក", "អ្នកទទួល"].map((label) => new TableCell({
-          borders: noBorders,
-          width: { size: 33, type: WidthType.PERCENTAGE },
-          margins: { top: 300 },
-          children: [
-            new Paragraph({ border: { top: cellBorder }, alignment: AlignmentType.CENTER, children: [new TextRun(label)] }),
-          ],
-        })),
-      }),
-    ],
-  }));
-
-  if (!isDN) {
-    footerChildren.push(new Paragraph({ spacing: { before: 300 }, border: { top: { style: BorderStyle.SINGLE, size: 2, color: "CCCCCC" } }, children: [new TextRun({ text: "ABA PAY", bold: true, size: 24 })] }));
-    footerChildren.push(new Paragraph({ children: [new TextRun({ text: "CHOUMHEAN TRADING CO., LTD.", size: 18 })] }));
-    footerChildren.push(new Paragraph({ children: [new TextRun({ text: "Account number: 555 666 798", size: 18 })] }));
-    footerChildren.push(new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: "081 882 982", size: 18 })] }));
-    footerChildren.push(new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: "មេរា-Mera", size: 18 })] }));
-  }
-
-  return {
-    properties: { page: { margins: { top: 300, bottom: 700, left: 700, right: 700 } } },
-    children: [...headerChildren, infoTable, new Paragraph(""), productTable, new Paragraph(""), ...footerChildren],
-  };
-}
-
-async function exportDocToWord(doc, linkedDN) {
-  const isDN = doc.type === "dn";
-  const showBoth = !isDN && linkedDN;
-  const docNumber = isDN ? doc.data.dn_number : doc.data.invoice_number;
-
-  const sections = [];
-  if (showBoth) sections.push(buildDocSection({ type: "dn", data: linkedDN }));
-  sections.push(buildDocSection(doc));
-
-  const docx = new Document({ sections });
-  const blob = await Packer.toBlob(docx);
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${docNumber || "document"}.docx`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
 
 function SingleDocument({ d, isDN, pageBreak }) {
   const products = [
@@ -5684,18 +5512,6 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
   const invoiceData = doc.data;
   const showBothPages = !isDN && linkedDN;
   const docNumber = isDN ? invoiceData.dn_number : invoiceData.invoice_number;
-  const [exporting, setExporting] = useState(false);
-
-  async function handleExportWord() {
-    setExporting(true);
-    try {
-      await exportDocToWord(doc, linkedDN);
-    } catch (err) {
-      alert("Could not export to Word: " + (err?.message || err));
-    } finally {
-      setExporting(false);
-    }
-  }
 
   return createPortal(
     <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
@@ -5711,7 +5527,6 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
           Print preview — {docNumber}{showBothPages ? ` (with ${linkedDN.dn_number})` : ""}
         </span>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={handleExportWord} disabled={exporting} style={{ background: "#3B5BA9", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#fff", cursor: exporting ? "default" : "pointer", opacity: exporting ? 0.7 : 1 }}>{exporting ? "Exporting…" : "Export to Word"}</button>
           <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
           <button onClick={onClose} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
         </div>
@@ -5719,6 +5534,43 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
 
       {showBothPages && <SingleDocument d={linkedDN} isDN={true} pageBreak={true} />}
       <SingleDocument d={invoiceData} isDN={isDN} pageBreak={false} />
+    </div>,
+    document.body
+  );
+}
+
+function MultiDocumentPrintView({ docs, onClose }) {
+  // docs: array of { type: 'dn'|'invoice', data, linkedDN? }
+  return createPortal(
+    <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
+      <style>{`
+        @media print {
+          .doc-no-print { display: none !important; }
+          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; }
+          .doc-print-root { display: block !important; position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; z-index: auto !important; }
+        }
+      `}</style>
+      <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
+        <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
+          Print preview — {docs.length} document{docs.length === 1 ? "" : "s"}
+        </span>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
+          <button onClick={onClose} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
+        </div>
+      </div>
+
+      {docs.map((doc, i) => {
+        const isDN = doc.type === "dn";
+        const isLast = i === docs.length - 1;
+        const showLinked = !isDN && doc.linkedDN;
+        return (
+          <React.Fragment key={`${doc.type}-${doc.data.id}`}>
+            {showLinked && <SingleDocument d={doc.linkedDN} isDN={true} pageBreak={true} />}
+            <SingleDocument d={doc.data} isDN={isDN} pageBreak={!isLast} />
+          </React.Fragment>
+        );
+      })}
     </div>,
     document.body
   );
