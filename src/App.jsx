@@ -5311,7 +5311,7 @@ function buildDocSection(doc) {
             width: { size: 20, type: WidthType.PERCENTAGE },
             borders: noBorders,
             verticalAlign: VerticalAlign.CENTER,
-            children: [new Paragraph({ children: [new ImageRun({ data: logoBytes, type: "png", transformation: { width: 70, height: 70 } })] })],
+            children: [new Paragraph({ children: [new ImageRun({ data: logoBytes, type: "png", transformation: { width: 100, height: 100 } })] })],
           }),
           new TableCell({
             width: { size: 80, type: WidthType.PERCENTAGE },
@@ -5446,7 +5446,7 @@ function buildDocSection(doc) {
   }
   if (d.notes) footerChildren.push(new Paragraph({ spacing: { before: 100 }, children: [new TextRun(d.notes)] }));
 
-  footerChildren.push(new Paragraph({ spacing: { before: 400 }, text: "" }));
+  footerChildren.push(new Paragraph({ spacing: { before: 800 }, text: "" }));
   footerChildren.push(new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: noBorders,
@@ -5522,9 +5522,9 @@ function SingleDocument({ d, isDN, pageBreak }) {
   return (
     <div style={{ maxWidth: 850, margin: "0 auto", padding: "12px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
-          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 70, height: 70, objectFit: "contain", flexShrink: 0 }} />
-          <div style={{ textAlign: "center", flex: 1 }}>
+        <div style={{ position: "relative", marginBottom: 16, minHeight: 100 }}>
+          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 100, height: 100, objectFit: "contain", position: "absolute", left: 0, top: 0 }} />
+          <div style={{ textAlign: "center", padding: "0 110px" }}>
             <div style={{ fontSize: 28, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
             <div style={{ fontSize: 12, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
             <div style={{ fontSize: 12, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
@@ -5647,14 +5647,17 @@ function SingleDocument({ d, isDN, pageBreak }) {
           {d.notes && <div style={{ marginTop: 6 }}>{d.notes}</div>}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 30 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 30, marginTop: 20 }}>
           <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ height: 70 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកប្រគល់</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ height: 70 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកដឹក</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ height: 70 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកទទួល</div>
           </div>
         </div>
