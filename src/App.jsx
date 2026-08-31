@@ -5446,7 +5446,7 @@ function buildDocSection(doc) {
   }
   if (d.notes) footerChildren.push(new Paragraph({ spacing: { before: 100 }, children: [new TextRun(d.notes)] }));
 
-  footerChildren.push(new Paragraph({ spacing: { before: 800 }, text: "" }));
+  footerChildren.push(new Paragraph({ spacing: { before: 1100 }, text: "" }));
   footerChildren.push(new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: noBorders,
@@ -5649,15 +5649,15 @@ function SingleDocument({ d, isDN, pageBreak }) {
 
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 30, marginTop: 20 }}>
           <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
-            <div style={{ height: 70 }} />
+            <div style={{ height: 100 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកប្រគល់</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
-            <div style={{ height: 70 }} />
+            <div style={{ height: 100 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកដឹក</div>
           </div>
           <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
-            <div style={{ height: 70 }} />
+            <div style={{ height: 100 }} />
             <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកទទួល</div>
           </div>
         </div>
