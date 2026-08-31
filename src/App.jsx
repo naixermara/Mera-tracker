@@ -5280,11 +5280,11 @@ function SingleDocument({ d, isDN, pageBreak }) {
     <div style={{ maxWidth: 850, margin: "0 auto", padding: "8px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
         <div style={{ marginBottom: 4 }}>
-          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 180, height: 180, objectFit: "contain" }} />
+          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 190, height: 190, objectFit: "contain" }} />
         </div>
 
         <div style={{ textAlign: "center", marginBottom: 16, marginTop: 0 }}>
-          <div style={{ fontSize: 40, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
+          <div style={{ fontSize: 36, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
           <div style={{ fontSize: 18, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
           <div style={{ fontSize: 18, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
           <div style={{ fontSize: 18, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
