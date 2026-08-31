@@ -5303,28 +5303,76 @@ function SingleDocument({ d, isDN, pageBreak }) {
   const docNumber = isDN ? d.dn_number : d.invoice_number;
   const docDate = isDN ? d.sale_date : d.invoice_date;
 
-  return (
-    <div style={{ maxWidth: 850, margin: "0 auto", padding: "12px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
+  // --- one-page fitting -------------------------------------------------
+  // A4 = 210 x 297mm. With the @page 10mm margin the printable box is
+  // 190 x 277mm  =>  718 x 1047 px at 96dpi. We keep a small safety gap.
+  const PAGE_W = 718;
+  const PAGE_H = 1035;
 
-        <div style={{ position: "relative", marginBottom: 16, minHeight: 100 }}>
-          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 100, height: 100, objectFit: "contain", position: "absolute", left: 0, top: 0 }} />
-          <div style={{ textAlign: "center", padding: "0 110px" }}>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
-            <div style={{ fontSize: 12, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
-            <div style={{ fontSize: 12, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
-            <div style={{ fontSize: 12, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
+  const innerRef = useRef(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fit = () => {
+      const el = innerRef.current;
+      if (!el || cancelled) return;
+      const h = el.scrollHeight;
+      if (!h) return;
+      setScale(h > PAGE_H ? Math.max(0.55, (PAGE_H - 2) / h) : 1);
+    };
+    fit();
+    // re-measure once the Khmer webfont and the logo image have loaded
+    const t1 = setTimeout(fit, 150);
+    const t2 = setTimeout(fit, 600);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit).catch(() => {});
+    return () => { cancelled = true; clearTimeout(t1); clearTimeout(t2); };
+  }, [d, isDN]);
+
+  const cell = { border: "1px solid #000", padding: "5px 8px" };
+  const th = { border: "1px solid #000", padding: "5px 4px" };
+  const td = { border: "1px solid #000", padding: "5px 4px" };
+
+  return (
+    <div
+      className="doc-page"
+      style={{
+        width: PAGE_W,
+        height: PAGE_H,
+        maxWidth: "100%",
+        margin: "0 auto",
+        overflow: "hidden",
+        background: "#fff",
+        color: "#1a1a1a",
+        fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif",
+        fontSize: 12,
+        pageBreakAfter: pageBreak ? "always" : "auto",
+        breakAfter: pageBreak ? "page" : "auto",
+        pageBreakInside: "avoid",
+        breakInside: "avoid",
+      }}
+    >
+      <div ref={innerRef} style={{ width: PAGE_W, minHeight: PAGE_H, display: "flex", flexDirection: "column", transform: `scale(${scale})`, transformOrigin: "top left" }}>
+
+        <div style={{ position: "relative", marginBottom: 10, minHeight: 92, flexShrink: 0 }}>
+          <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 90, height: 90, objectFit: "contain", position: "absolute", left: 0, top: 0 }} />
+          <div style={{ textAlign: "center", padding: "0 100px" }}>
+            <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.3 }}>ជំហានត្រេឌីង ឯ.ក</div>
+            <div style={{ fontSize: 11, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
+            <div style={{ fontSize: 11, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
+            <div style={{ fontSize: 11, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
           </div>
         </div>
 
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
-          {khmerTitle && <div style={{ fontSize: 17, fontWeight: 700, textDecoration: "underline" }}>{khmerTitle}</div>}
-          <div style={{ fontSize: 16, fontWeight: 700, textDecoration: isDN || d.invoice_type === "consignment" ? "underline" : "none" }}>{title}</div>
+        <div style={{ textAlign: "center", marginBottom: 10, flexShrink: 0 }}>
+          {khmerTitle && <div style={{ fontSize: 16, fontWeight: 700, textDecoration: "underline", lineHeight: 1.4 }}>{khmerTitle}</div>}
+          <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4, textDecoration: isDN || d.invoice_type === "consignment" ? "underline" : "none" }}>{title}</div>
         </div>
 
-        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 14, fontSize: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 10, fontSize: 11, flexShrink: 0 }}>
           <tbody>
             <tr>
-              <td style={{ border: "1px solid #000", padding: "6px 10px", width: "55%", verticalAlign: "top" }}>
+              <td style={{ ...cell, width: "55%", verticalAlign: "top" }}>
                 <div><b>ឈ្មោះ{isDN ? "" : "អតិថិជន"} :</b> {d.customer_name}</div>
                 {(d.customer_address) && <div style={{ marginTop: 2 }}><b>អាសយដ្ឋាន :</b> {d.customer_address}</div>}
                 {(d.customer_phone) && <div style={{ marginTop: 2 }}><b>លេខទូរស័ព្ទ:</b> {d.customer_phone}</div>}
@@ -5339,7 +5387,7 @@ function SingleDocument({ d, isDN, pageBreak }) {
                 )}
                 {!isDN && d.vat_tin && <div style={{ marginTop: 2 }}><b>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖</b> {d.vat_tin}</div>}
               </td>
-              <td style={{ border: "1px solid #000", padding: "6px 10px", verticalAlign: "top" }}>
+              <td style={{ ...cell, verticalAlign: "top" }}>
                 <div><b>{isDN ? "DN:" : "លេខវិក្កយបត្រ:"}</b> {docNumber}</div>
                 {d.order_no && <div style={{ marginTop: 2 }}><b>{isDN ? "Order No :" : "លេខបញ្ជាទិញ:"}</b> {d.order_no}</div>}
                 <div style={{ marginTop: 2 }}><b>{isDN ? "Sale Date :" : "កាលបរិច្ឆេទលក់:"}</b> {new Date(docDate + "T00:00:00").toLocaleDateString("en-GB")}</div>
@@ -5350,43 +5398,43 @@ function SingleDocument({ d, isDN, pageBreak }) {
           </tbody>
         </table>
 
-        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 14, fontSize: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", marginBottom: 10, fontSize: 11, flexShrink: 0 }}>
           <thead>
             <tr style={{ background: "#f2f2f2" }}>
-              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>No</th>
-              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Barcode</th>
-              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Description</th>
-              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>UM</th>
-              <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Qty</th>
+              <th style={th}>No</th>
+              <th style={th}>Barcode</th>
+              <th style={th}>Description</th>
+              <th style={th}>UM</th>
+              <th style={th}>Qty</th>
               {!isDN && <>
-                <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Price</th>
-                <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Discount</th>
-                <th style={{ border: "1px solid #000", padding: "6px 4px" }}>Amount</th>
+                <th style={th}>Price</th>
+                <th style={th}>Discount</th>
+                <th style={th}>Amount</th>
               </>}
             </tr>
           </thead>
           <tbody>
             {products.map((p, i) => (
               <tr key={p.code}>
-                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>{i + 1}</td>
-                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>{p.code}</td>
-                <td style={{ border: "1px solid #000", padding: "6px 4px" }}>{p.label}</td>
-                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>Box</td>
-                <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>{p.qty}</td>
+                <td style={{ ...td, textAlign: "center" }}>{i + 1}</td>
+                <td style={{ ...td, textAlign: "center" }}>{p.code}</td>
+                <td style={td}>{p.label}</td>
+                <td style={{ ...td, textAlign: "center" }}>Box</td>
+                <td style={{ ...td, textAlign: "center" }}>{p.qty}</td>
                 {!isDN && <>
-                  <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "right" }}>${p.price.toFixed(2)}</td>
-                  <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "center" }}>%0</td>
-                  <td style={{ border: "1px solid #000", padding: "6px 4px", textAlign: "right" }}>${(p.qty * p.price).toFixed(2)}</td>
+                  <td style={{ ...td, textAlign: "right" }}>${p.price.toFixed(2)}</td>
+                  <td style={{ ...td, textAlign: "center" }}>%0</td>
+                  <td style={{ ...td, textAlign: "right" }}>${(p.qty * p.price).toFixed(2)}</td>
                 </>}
               </tr>
             ))}
-            {Array.from({ length: Math.max(0, 5 - products.length) }).map((_, i) => (
+            {Array.from({ length: Math.max(0, 4 - products.length) }).map((_, i) => (
               <tr key={"blank" + i}>
-                <td style={{ border: "1px solid #000", padding: "10px 4px" }}>&nbsp;</td>
-                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
-                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
-                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
-                <td style={{ border: "1px solid #000", padding: "10px 4px" }}></td>
+                <td style={{ border: "1px solid #000", padding: "7px 4px" }}>&nbsp;</td>
+                <td style={{ border: "1px solid #000" }}></td>
+                <td style={{ border: "1px solid #000" }}></td>
+                <td style={{ border: "1px solid #000" }}></td>
+                <td style={{ border: "1px solid #000" }}></td>
                 {!isDN && <><td style={{ border: "1px solid #000" }}></td><td style={{ border: "1px solid #000" }}></td><td style={{ border: "1px solid #000" }}></td></>}
               </tr>
             ))}
@@ -5394,32 +5442,32 @@ function SingleDocument({ d, isDN, pageBreak }) {
         </table>
 
         {isDN ? (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, fontSize: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, fontSize: 11, flexShrink: 0 }}>
             <div>- Payment Method : {d.payment_method || "—"}</div>
             <div><b>Total Qty :</b> {products.reduce((a, p) => a + p.qty, 0)}</div>
           </div>
         ) : (
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 20 }}>
-            <table style={{ borderCollapse: "collapse", fontSize: 12, width: 320 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6, flexShrink: 0 }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 11, width: 320 }}>
               <tbody>
-                <tr><td style={{ border: "1px solid #000", padding: "5px 10px" }}>សរុប / Sub-Total :</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${subtotal.toFixed(2)}</td></tr>
-                <tr><td style={{ border: "1px solid #000", padding: "5px 10px" }}>ចុះថ្លៃ / Discount ({Number(d.discount_percent || 0)}%):</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${discountAmt.toFixed(2)}</td></tr>
+                <tr><td style={{ ...cell, padding: "4px 8px" }}>សរុប / Sub-Total :</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${subtotal.toFixed(2)}</td></tr>
+                <tr><td style={{ ...cell, padding: "4px 8px" }}>ចុះថ្លៃ / Discount ({Number(d.discount_percent || 0)}%):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${discountAmt.toFixed(2)}</td></tr>
                 {d.invoice_type === "tax" && (
-                  <tr><td style={{ border: "1px solid #000", padding: "5px 10px" }}>VAT ({Number(d.vat_percent || 0)}%)</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${vatAmt.toFixed(2)}</td></tr>
+                  <tr><td style={{ ...cell, padding: "4px 8px" }}>VAT ({Number(d.vat_percent || 0)}%)</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${vatAmt.toFixed(2)}</td></tr>
                 )}
-                <tr style={{ fontWeight: 700 }}><td style={{ border: "1px solid #000", padding: "5px 10px" }}>សរុបចុងក្រោយ/ Grand Total($):</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>${grandTotal.toFixed(2)}</td></tr>
-                <tr style={{ fontWeight: 700 }}><td style={{ border: "1px solid #000", padding: "5px 10px" }}>សរុបចុងក្រោយ/ Grand Total(៛):</td><td style={{ border: "1px solid #000", padding: "5px 10px", textAlign: "right" }}>៛{Math.round(rielTotal).toLocaleString()}</td></tr>
+                <tr style={{ fontWeight: 700 }}><td style={{ ...cell, padding: "4px 8px" }}>សរុបចុងក្រោយ/ Grand Total($):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${grandTotal.toFixed(2)}</td></tr>
+                <tr style={{ fontWeight: 700 }}><td style={{ ...cell, padding: "4px 8px" }}>សរុបចុងក្រោយ/ Grand Total(៛):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>៛{Math.round(rielTotal).toLocaleString()}</td></tr>
               </tbody>
             </table>
           </div>
         )}
         {!isDN && (
-          <div style={{ textAlign: "right", fontSize: 10, color: "#333", marginBottom: 20 }}>
+          <div style={{ textAlign: "right", fontSize: 10, color: "#333", marginBottom: 12, flexShrink: 0 }}>
             អត្រាប្តូរប្រាក់គិតតាមធនាគារជាតិ 1$ = {Number(d.exchange_rate || 4046).toLocaleString()}៛
           </div>
         )}
 
-        <div style={{ fontSize: 11, marginBottom: 40 }}>
+        <div style={{ fontSize: 10.5, marginBottom: 16, lineHeight: 1.5, flexShrink: 0 }}>
           <b>{isDN ? "" : "បញ្ជាក់:"}</b>
           <div>- សូមពិនិត្យទំនិញអោយបានត្រឹមត្រូវមុននឹងទទួលទំនិញ។</div>
           {d.invoice_type === "consignment" && (
@@ -5428,38 +5476,42 @@ function SingleDocument({ d, isDN, pageBreak }) {
               <div>- ទំនិញដែលលក់បានចាប់ពី 20$ឡើងទៅក្រុមហ៊ុនស្នើសុំធ្វើការទូទាត់ទឹកប្រាក់។</div>
             </>
           )}
-          {d.notes && <div style={{ marginTop: 6 }}>{d.notes}</div>}
+          {d.notes && <div style={{ marginTop: 4 }}>{d.notes}</div>}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 30, marginTop: 20 }}>
-          <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
-            <div style={{ height: 100 }} />
-            <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកប្រគល់</div>
+        {/* signatures + bank details pinned to the bottom of the page */}
+        <div style={{ marginTop: "auto", flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, marginTop: 8 }}>
+          <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
+            <div style={{ height: 70 }} />
+            <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកប្រគល់</div>
           </div>
-          <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
-            <div style={{ height: 100 }} />
-            <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកដឹក</div>
+          <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
+            <div style={{ height: 70 }} />
+            <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកដឹក</div>
           </div>
-          <div style={{ width: "28%", textAlign: "center", fontSize: 12 }}>
-            <div style={{ height: 100 }} />
-            <div style={{ borderTop: "1px solid #000", paddingTop: 6 }}>អ្នកទទួល</div>
+          <div style={{ width: "28%", textAlign: "center", fontSize: 11 }}>
+            <div style={{ height: 70 }} />
+            <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អ្នកទទួល</div>
           </div>
         </div>
 
         {!isDN && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderTop: "1px solid #ccc", paddingTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderTop: "1px solid #ccc", paddingTop: 10 }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>ABA PAY</div>
-              <div style={{ fontSize: 11 }}>CHOUMHEAN TRADING CO., LTD.</div>
-              <div style={{ fontSize: 11 }}>Account number: 555 666 798</div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>ABA PAY</div>
+              <div style={{ fontSize: 10.5 }}>CHOUMHEAN TRADING CO., LTD.</div>
+              <div style={{ fontSize: 10.5 }}>Account number: 555 666 798</div>
             </div>
-            <div style={{ textAlign: "right", fontSize: 11 }}>
+            <div style={{ textAlign: "right", fontSize: 10.5 }}>
               <div>081 882 982</div>
               <div>មេរា-Mera</div>
             </div>
           </div>
         )}
+        </div>
       </div>
+    </div>
   );
 }
 
@@ -5472,10 +5524,13 @@ function DocumentPrintView({ doc, onClose, linkedDN }) {
   return createPortal(
     <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
       <style>{`
+        @page { size: A4; margin: 10mm; }
+        .doc-page { margin: 0 auto 18px auto; box-shadow: 0 0 0 1px #e0e0e0; }
         @media print {
           .doc-no-print { display: none !important; }
-          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; }
+          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .doc-print-root { display: block !important; position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; z-index: auto !important; }
+          .doc-page { margin: 0 !important; box-shadow: none !important; page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
       <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
@@ -5500,10 +5555,13 @@ function MultiDocumentPrintView({ docs, onClose }) {
   return createPortal(
     <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
       <style>{`
+        @page { size: A4; margin: 10mm; }
+        .doc-page { margin: 0 auto 18px auto; box-shadow: 0 0 0 1px #e0e0e0; }
         @media print {
           .doc-no-print { display: none !important; }
-          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; }
+          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .doc-print-root { display: block !important; position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; z-index: auto !important; }
+          .doc-page { margin: 0 !important; box-shadow: none !important; page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
       <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
