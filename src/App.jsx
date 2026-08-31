@@ -5277,7 +5277,7 @@ function SingleDocument({ d, isDN, pageBreak }) {
   const docDate = isDN ? d.sale_date : d.invoice_date;
 
   return (
-    <div style={{ maxWidth: 850, margin: "0 auto", padding: "8px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
+    <div style={{ maxWidth: 850, margin: "0 auto", padding: "2px 40px 40px 40px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 13, pageBreakAfter: pageBreak ? "always" : "auto" }}>
 
         <div style={{ marginBottom: 4 }}>
           <img src={CHOUMHEAN_LOGO} alt="Company logo" style={{ width: 190, height: 190, objectFit: "contain" }} />
