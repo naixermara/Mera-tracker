@@ -5284,6 +5284,12 @@ function SingleDocument({ d, isDN, pageBreak }) {
         </div>
 
         <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 10, color: "#333" }}>ជាន់ទី០២ ផ្លូវដឹអេលីហ្សេ ភូមិ១៤ សង្កាត់ទន្លេបាសាក់ ខណ្ឌចំការមន ភ្នំពេញ</div>
+          <div style={{ fontSize: 10, color: "#333" }}>លេខអត្តសញ្ញាណកម្ម (VAT TIN)៖ K002-902506031</div>
+          <div style={{ fontSize: 10, color: "#333" }}>លេខការិយាល័យ៖ 081 882 982</div>
+        </div>
+
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
           {khmerTitle && <div style={{ fontSize: 17, fontWeight: 700, textDecoration: "underline" }}>{khmerTitle}</div>}
           <div style={{ fontSize: 16, fontWeight: 700, textDecoration: isDN || d.invoice_type === "consignment" ? "underline" : "none" }}>{title}</div>
         </div>
@@ -6408,4 +6414,3 @@ const miniInputStyle = {
   color: C.text,
   outline: "none",
 };
-
