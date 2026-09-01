@@ -941,7 +941,20 @@ export default function MeraConsignmentApp() {
         </div>
 
         {page === "overview" ? (
-          <OverviewPage authUser={authUser} C={C} sbFetch={sbFetch} onNavigate={setPage} />
+          <OverviewPage
+            authUser={authUser}
+            C={C}
+            sbFetch={sbFetch}
+            onNavigate={(dest) => {
+              // Overview cards point at sub-views, not top-level pages — map them.
+              if (dest === "kol") { setPage("kol"); return; }
+              if (dest === "total") { setPage("sales"); setSalesSubPage("total"); return; }
+              if (dest === "credit") { setPage("sales"); setSalesSubPage("credit"); return; }
+              if (dest === "corporate") { setPage("sales"); setSalesSubPage("consignment"); setConsignmentSubView("bigco"); return; }
+              if (dest === "consignment") { setPage("sales"); setSalesSubPage("consignment"); setConsignmentSubView("regular"); return; }
+              setPage(dest);
+            }}
+          />
         ) : page === "kol" ? (
           <KolPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
         ) : page === "delivery" ? (
@@ -3671,16 +3684,20 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
   const [consignmentVisits, setConsignmentVisits] = useState([]);
   const [kols, setKols] = useState([]);
   const [creditInvoices, setCreditInvoices] = useState([]);
+  const [creditPayments, setCreditPayments] = useState([]);
+  const [bigcoReports, setBigcoReports] = useState([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [visitRows, kolRows, videoRows, paymentRows, invoiceRows] = await Promise.all([
+        const [visitRows, kolRows, videoRows, paymentRows, invoiceRows, creditPaymentRows, bigcoReportRows] = await Promise.all([
           sbFetch("visits?select=*"),
           sbFetch("kols?select=*"),
           sbFetch("kol_videos?select=*"),
           sbFetch("kol_payments?select=*"),
           sbFetch("credit_invoices?select=*"),
+          sbFetch("credit_payments?select=*"),
+          sbFetch("bigco_reports?select=*"),
         ]);
         setConsignmentVisits(visitRows || []);
         const mergedKols = (kolRows || []).map((k) => ({
@@ -3692,6 +3709,8 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
         }));
         setKols(mergedKols);
         setCreditInvoices(invoiceRows || []);
+        setCreditPayments(creditPaymentRows || []);
+        setBigcoReports(bigcoReportRows || []);
       } catch (e) {
         // Overview is read-only and non-critical — fail quietly, sections just show $0
       } finally {
@@ -3705,9 +3724,11 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
     consignmentVisits.forEach((v) => keys.add(monthKey(v.date)));
     kols.forEach((k) => k.videos.forEach((v) => keys.add(monthKey(v.posted_date))));
     creditInvoices.forEach((inv) => keys.add(monthKey(inv.invoice_date)));
+    creditPayments.forEach((p) => p.payment_date && keys.add(monthKey(p.payment_date)));
+    bigcoReports.forEach((r) => r.report_date && keys.add(monthKey(r.report_date)));
     keys.add(currentMonthKey());
     return Array.from(keys).sort().reverse();
-  }, [consignmentVisits, kols, creditInvoices]);
+  }, [consignmentVisits, kols, creditInvoices, creditPayments, bigcoReports]);
 
   const summary = useMemo(() => {
     const monthConsignmentVisits = consignmentVisits.filter((v) => monthKey(v.date) === selectedMonth);
@@ -3722,19 +3743,28 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
 
     const monthInvoices = creditInvoices.filter((inv) => monthKey(inv.invoice_date) === selectedMonth);
     const creditBilled = monthInvoices.reduce((a, inv) => a + Number(inv.amount || 0), 0);
-    const creditCollected = monthInvoices.reduce((a, inv) => a + Number(inv.paid || 0), 0);
+    // Credit Term counts money paid on this month's invoices PLUS standalone
+    // payments dated this month — same rule the Credit Term tab uses.
+    const creditCollected =
+      monthInvoices.reduce((a, inv) => a + Number(inv.paid || 0), 0) +
+      creditPayments.filter((p) => monthKey(p.payment_date) === selectedMonth).reduce((a, p) => a + Number(p.amount || 0), 0);
 
-    return { consignmentCollected, kolSpend, creditBilled, creditCollected };
-  }, [consignmentVisits, kols, creditInvoices, selectedMonth]);
+    const monthReports = bigcoReports.filter((r) => monthKey(r.report_date) === selectedMonth);
+    const corporateBilled = monthReports.reduce((a, r) => a + Number(r.amount || 0), 0);
+    const corporateCollected = monthReports.reduce((a, r) => a + Number(r.paid || 0), 0);
 
-  const netTotal = summary.consignmentCollected + summary.creditCollected - summary.kolSpend;
+    return { consignmentCollected, kolSpend, creditBilled, creditCollected, corporateBilled, corporateCollected };
+  }, [consignmentVisits, kols, creditInvoices, creditPayments, bigcoReports, selectedMonth]);
+
+  const totalCollected = summary.consignmentCollected + summary.corporateCollected + summary.creditCollected;
+  const netTotal = totalCollected - summary.kolSpend;
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <div>
           <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Overview</h2>
-          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Combined view across Consignment, KOL &amp; Content, and Credit Term</div>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Combined view across Consignment, Corporate Accounts, Credit Term, and KOL &amp; Content</div>
         </div>
         <select
           value={selectedMonth}
@@ -3756,7 +3786,16 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 32, fontWeight: 600, marginTop: 8, color: netTotal >= 0 ? C.emerald : C.rose }}>
               {netTotal >= 0 ? "+" : "-"}${Math.abs(netTotal).toFixed(2)}
             </div>
-            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 6 }}>Consignment + Credit Term collected, minus KOL &amp; Content spend</div>
+            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 6 }}>
+              ${totalCollected.toFixed(2)} collected across all 3 sales accounts, minus ${summary.kolSpend.toFixed(2)} KOL &amp; Content spend
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate("total")}
+              style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "7px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", marginTop: 14 }}
+            >
+              See the sales breakdown →
+            </button>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
@@ -3767,6 +3806,15 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
               <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Consignment</div>
               <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.consignmentCollected.toFixed(2)}</div>
               <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected this month</div>
+            </button>
+
+            <button
+              onClick={() => onNavigate("corporate")}
+              style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
+            >
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Corporate Accounts</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.corporateCollected.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected of ${summary.corporateBilled.toFixed(2)} billed</div>
             </button>
 
             <button
