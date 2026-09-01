@@ -6562,15 +6562,24 @@ const miniInputStyle = {
 // PAYROLL  —  visible only to the emails in PAYROLL_EMAILS
 // ============================================================================
 
+const STANDARD_DAYS = 26;
+
 function money(n) {
   return "$" + (Number(n) || 0).toFixed(2);
 }
-function num(v) {
+function pnum(v) {
   const n = parseFloat(v);
   return isNaN(n) ? 0 : n;
 }
+function dailyRate(r) {
+  const std = pnum(r.standard_days) || STANDARD_DAYS;
+  return pnum(r.base_salary) / std;
+}
+function earnedOf(r) {
+  return dailyRate(r) * pnum(r.days_worked);
+}
 function netOf(r) {
-  return num(r.base_salary) + num(r.commission) + num(r.bonus) - num(r.advance) - num(r.other_deduction);
+  return earnedOf(r) + pnum(r.commission) + pnum(r.bonus) - pnum(r.advance) - pnum(r.other_deduction);
 }
 function payrollMonthOptions() {
   const out = [];
@@ -6582,6 +6591,11 @@ function payrollMonthOptions() {
   }
   return out;
 }
+function khMonthLabel(key) {
+  const KH = ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"];
+  const [y, m] = key.split("-").map(Number);
+  return `${KH[m - 1]} ឆ្នាំ${y}`;
+}
 
 function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   const [tab, setTab] = useState("run");
@@ -6589,16 +6603,18 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // ---- payroll run state
   const [month, setMonth] = useState(currentMonthKey());
   const [run, setRun] = useState(null);
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [printDocs, setPrintDocs] = useState(null);
+  const [printSlips, setPrintSlips] = useState(null);
+  const [printSheet, setPrintSheet] = useState(false);
 
-  // ---- staff form state
-  const emptyStaff = { name: "", name_kh: "", position: "", pay_type: "salary", monthly_salary: "", phone: "", start_date: todayStr(), notes: "" };
+  const emptyStaff = {
+    staff_no: "", name: "", name_kh: "", gender: "", position: "", pay_type: "salary",
+    monthly_salary: "", aba_number: "", phone: "", start_date: "", notes: "",
+  };
   const [showNewStaff, setShowNewStaff] = useState(false);
   const [staffForm, setStaffForm] = useState(emptyStaff);
   const [editingStaffId, setEditingStaffId] = useState(null);
@@ -6606,7 +6622,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   useEffect(() => {
     (async () => {
       try {
-        const rowsS = await sbFetch("staff?select=*&order=name.asc");
+        const rowsS = await sbFetch("staff?select=*&order=staff_no.asc,name.asc");
         setStaff(rowsS || []);
       } catch (e) {
         setError("Couldn't load staff. Did you run the payroll SQL in Supabase?");
@@ -6627,7 +6643,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
         if (cancelled) return;
         setRun(r);
         if (r) {
-          const ps = await sbFetch(`payslips?run_id=eq.${r.id}&select=*&order=staff_name.asc`);
+          const ps = await sbFetch(`payslips?run_id=eq.${r.id}&select=*&order=staff_no.asc,staff_name.asc`);
           if (cancelled) return;
           setRows(ps || []);
         } else {
@@ -6646,16 +6662,19 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   const locked = run?.status === "paid";
   const total = rows.reduce((a, r) => a + netOf(r), 0);
 
-  // ---------------- staff CRUD ----------------
+  // ---------------- staff ----------------
   async function saveStaff() {
-    const name = staffForm.name.trim();
+    const name = staffForm.name.trim() || staffForm.name_kh.trim();
     if (!name) return;
     const body = {
       name,
       name_kh: staffForm.name_kh || null,
+      staff_no: staffForm.staff_no || null,
+      gender: staffForm.gender || null,
       position: staffForm.position || null,
       pay_type: staffForm.pay_type,
-      monthly_salary: num(staffForm.monthly_salary),
+      monthly_salary: pnum(staffForm.monthly_salary),
+      aba_number: staffForm.aba_number || null,
       phone: staffForm.phone || null,
       start_date: staffForm.start_date || null,
       notes: staffForm.notes || null,
@@ -6663,11 +6682,11 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
     try {
       if (editingStaffId) {
         await sbFetch(`staff?id=eq.${editingStaffId}`, { method: "PATCH", body: JSON.stringify(body) });
-        setStaff((prev) => prev.map((s) => (s.id === editingStaffId ? { ...s, ...body } : s)).sort((a, b) => a.name.localeCompare(b.name)));
+        setStaff((prev) => prev.map((s) => (s.id === editingStaffId ? { ...s, ...body } : s)));
         logActivity?.("Edited staff", name, "");
       } else {
         const [ins] = await sbFetch("staff", { method: "POST", body: JSON.stringify({ ...body, active: true }) });
-        setStaff((prev) => [...prev, ins].sort((a, b) => a.name.localeCompare(b.name)));
+        setStaff((prev) => [...prev, ins]);
         logActivity?.("Added staff", name, staffForm.position || "");
       }
       setShowNewStaff(false);
@@ -6698,7 +6717,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
     }
   }
 
-  // ---------------- payroll run ----------------
+  // ---------------- run ----------------
   async function startRun() {
     const active = staff.filter((s) => s.active);
     if (!active.length) {
@@ -6715,8 +6734,15 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
         run_id: newRun.id,
         staff_id: s.id,
         staff_name: s.name,
+        staff_name_kh: s.name_kh || null,
+        staff_no: s.staff_no || null,
         staff_position: s.position || null,
+        gender: s.gender || null,
+        aba_number: s.aba_number || null,
+        staff_start_date: s.start_date || null,
         base_salary: Number(s.monthly_salary) || 0,
+        days_worked: STANDARD_DAYS,
+        standard_days: STANDARD_DAYS,
         commission: 0,
         bonus: 0,
         advance: 0,
@@ -6725,7 +6751,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
       }));
       const inserted = await sbFetch("payslips", { method: "POST", body: JSON.stringify(payload) });
       setRun(newRun);
-      setRows((inserted || []).sort((a, b) => a.staff_name.localeCompare(b.staff_name)));
+      setRows(inserted || []);
       setDirty(false);
       setError("");
       logActivity?.("Started payroll", monthLabel(month), `${active.length} staff`);
@@ -6748,11 +6774,13 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
         await sbFetch(`payslips?id=eq.${r.id}`, {
           method: "PATCH",
           body: JSON.stringify({
-            base_salary: num(r.base_salary),
-            commission: num(r.commission),
-            bonus: num(r.bonus),
-            advance: num(r.advance),
-            other_deduction: num(r.other_deduction),
+            base_salary: pnum(r.base_salary),
+            days_worked: pnum(r.days_worked),
+            standard_days: pnum(r.standard_days) || STANDARD_DAYS,
+            commission: pnum(r.commission),
+            bonus: pnum(r.bonus),
+            advance: pnum(r.advance),
+            other_deduction: pnum(r.other_deduction),
             net_pay: netOf(r),
             note: r.note || null,
           }),
@@ -6770,10 +6798,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   }
 
   async function markPaid() {
-    if (dirty) {
-      setError("Save your changes first.");
-      return;
-    }
+    if (dirty) { setError("Save your changes first."); return; }
     if (!window.confirm(`Lock ${monthLabel(month)} as paid? You can reopen it later if you need to.`)) return;
     try {
       await sbFetch(`payroll_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "paid", paid_at: new Date().toISOString(), total }) });
@@ -6788,9 +6813,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
     try {
       await sbFetch(`payroll_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "draft" }) });
       setRun((p) => ({ ...p, status: "draft" }));
-    } catch (e) {
-      setError("Couldn't reopen.");
-    }
+    } catch (e) { setError("Couldn't reopen."); }
   }
 
   async function deleteRun() {
@@ -6799,49 +6822,31 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
       await sbFetch(`payroll_runs?id=eq.${run.id}`, { method: "DELETE" });
       setRun(null);
       setRows([]);
-    } catch (e) {
-      setError("Couldn't delete.");
-    }
+    } catch (e) { setError("Couldn't delete."); }
   }
 
-  const inputStyle = {
-    background: C.bg2, border: `1px solid ${C.border}`, color: C.text,
-    borderRadius: 8, padding: "9px 10px", fontSize: 13, width: "100%", boxSizing: "border-box",
-  };
+  const inputStyle = { background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "9px 10px", fontSize: 13, width: "100%", boxSizing: "border-box" };
   const cellInput = { ...inputStyle, padding: "7px 8px", textAlign: "right" };
   const labelStyle = { fontSize: 11, color: C.textFaint, fontWeight: 700, marginBottom: 5, display: "block", letterSpacing: "0.04em", textTransform: "uppercase" };
+  const thStyle = { textAlign: "right", padding: "12px 8px", fontWeight: 700 };
 
-  if (loading) {
-    return <div style={{ padding: 40, color: C.textDim, fontSize: 14 }}>Loading payroll…</div>;
-  }
+  if (loading) return <div style={{ padding: 40, color: C.textDim, fontSize: 14 }}>Loading payroll…</div>;
 
   return (
     <div>
-      {printDocs && <PayslipPrintView slips={printDocs} month={month} onClose={() => setPrintDocs(null)} />}
+      {printSlips && <PayslipPrintView slips={printSlips} month={month} onClose={() => setPrintSlips(null)} />}
+      {printSheet && <PayrollSheetPrintView rows={rows} month={month} total={total} onClose={() => setPrintSheet(false)} />}
 
       <div style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 18 }}>
-        {[
-          { key: "run", label: "Monthly payroll" },
-          { key: "staff", label: "Staff" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            style={{
-              background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginRight: 14,
-              color: tab === t.key ? C.gold : C.textFaint,
-              borderBottom: `2px solid ${tab === t.key ? C.gold : "transparent"}`,
-            }}
-          >
+        {[{ key: "run", label: "Monthly payroll" }, { key: "staff", label: "Staff" }].map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{ background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginRight: 14, color: tab === t.key ? C.gold : C.textFaint, borderBottom: `2px solid ${tab === t.key ? C.gold : "transparent"}` }}>
             {t.label}
           </button>
         ))}
       </div>
 
       {error && (
-        <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16, border: `1px solid ${C.rose}30` }}>
-          {error}
-        </div>
+        <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16, border: `1px solid ${C.rose}30` }}>{error}</div>
       )}
 
       {/* ------------------------------- STAFF ------------------------------- */}
@@ -6850,13 +6855,9 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
             <div>
               <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Staff</h2>
-              <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Everyone on the payroll and what they earn each month</div>
+              <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>{staff.filter((s) => s.active).length} active · {staff.length} total</div>
             </div>
-            <button
-              onClick={() => { setStaffForm(emptyStaff); setEditingStaffId(null); setShowNewStaff(true); }}
-              className="primarybtn"
-              style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}
-            >
+            <button onClick={() => { setStaffForm(emptyStaff); setEditingStaffId(null); setShowNewStaff(true); }} className="primarybtn" style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 20px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
               <Plus size={16} /> Add staff
             </button>
           </div>
@@ -6867,18 +6868,28 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{editingStaffId ? "Edit staff" : "New staff"}</div>
                 <button onClick={() => { setShowNewStaff(false); setEditingStaffId(null); }} style={{ background: "none", border: "none", color: C.textFaint, cursor: "pointer" }}><X size={18} /></button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14 }}>
-                <div><label style={labelStyle}>Name</label><input style={inputStyle} value={staffForm.name} onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })} /></div>
-                <div><label style={labelStyle}>Name in Khmer</label><input style={inputStyle} value={staffForm.name_kh} onChange={(e) => setStaffForm({ ...staffForm, name_kh: e.target.value })} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 14 }}>
+                <div><label style={labelStyle}>Staff ID (អត្តលេខ)</label><input style={inputStyle} value={staffForm.staff_no} onChange={(e) => setStaffForm({ ...staffForm, staff_no: e.target.value })} /></div>
+                <div><label style={labelStyle}>Name (English)</label><input style={inputStyle} value={staffForm.name} onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })} /></div>
+                <div><label style={labelStyle}>ឈ្មោះជាភាសាខ្មែរ</label><input style={inputStyle} value={staffForm.name_kh} onChange={(e) => setStaffForm({ ...staffForm, name_kh: e.target.value })} /></div>
+                <div>
+                  <label style={labelStyle}>ភេទ / Gender</label>
+                  <select style={inputStyle} value={staffForm.gender} onChange={(e) => setStaffForm({ ...staffForm, gender: e.target.value })}>
+                    <option value="">—</option>
+                    <option value="F">ស្រី (F)</option>
+                    <option value="M">ប្រុស (M)</option>
+                  </select>
+                </div>
                 <div><label style={labelStyle}>Position</label><input style={inputStyle} value={staffForm.position} onChange={(e) => setStaffForm({ ...staffForm, position: e.target.value })} /></div>
                 <div>
                   <label style={labelStyle}>Pay type</label>
                   <select style={inputStyle} value={staffForm.pay_type} onChange={(e) => setStaffForm({ ...staffForm, pay_type: e.target.value })}>
                     <option value="salary">Flat salary</option>
-                    <option value="commission">Salary + commission</option>
+                    <option value="commission">Salary + incentive</option>
                   </select>
                 </div>
-                <div><label style={labelStyle}>Monthly salary ($)</label><input style={inputStyle} inputMode="decimal" value={staffForm.monthly_salary} onChange={(e) => setStaffForm({ ...staffForm, monthly_salary: e.target.value })} /></div>
+                <div><label style={labelStyle}>Base salary ($/month)</label><input style={inputStyle} inputMode="decimal" value={staffForm.monthly_salary} onChange={(e) => setStaffForm({ ...staffForm, monthly_salary: e.target.value })} /></div>
+                <div><label style={labelStyle}>ABA number</label><input style={inputStyle} value={staffForm.aba_number} onChange={(e) => setStaffForm({ ...staffForm, aba_number: e.target.value })} /></div>
                 <div><label style={labelStyle}>Phone</label><input style={inputStyle} value={staffForm.phone} onChange={(e) => setStaffForm({ ...staffForm, phone: e.target.value })} /></div>
                 <div><label style={labelStyle}>Start date</label><input type="date" style={inputStyle} value={staffForm.start_date || ""} onChange={(e) => setStaffForm({ ...staffForm, start_date: e.target.value })} /></div>
                 <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Notes</label><input style={inputStyle} value={staffForm.notes} onChange={(e) => setStaffForm({ ...staffForm, notes: e.target.value })} /></div>
@@ -6890,25 +6901,24 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
           )}
 
           {staff.length === 0 ? (
-            <div style={{ background: C.surface, border: `1px dashed ${C.border}`, borderRadius: 12, padding: 40, textAlign: "center", color: C.textFaint, fontSize: 14 }}>
-              No staff yet. Add your first person above.
-            </div>
+            <div style={{ background: C.surface, border: `1px dashed ${C.border}`, borderRadius: 12, padding: 40, textAlign: "center", color: C.textFaint, fontSize: 14 }}>No staff yet.</div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
               {staff.map((s) => (
                 <div key={s.id} className="storerow" style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", opacity: s.active ? 1 : 0.5 }}>
-                  <div>
+                  <div style={{ minWidth: 200 }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>
-                      {s.name} {s.name_kh ? <span style={{ color: C.textDim, fontWeight: 400 }}>· {s.name_kh}</span> : null}
+                      {s.name_kh || s.name}
+                      {s.name_kh && s.name && s.name_kh !== s.name ? <span style={{ color: C.textDim, fontWeight: 400 }}> · {s.name}</span> : null}
                       {!s.active && <span style={{ marginLeft: 8, fontSize: 11, color: C.textFaint }}>(inactive)</span>}
                     </div>
                     <div style={{ fontSize: 12, color: C.textFaint, marginTop: 3 }}>
-                      {s.position || "—"} · {s.pay_type === "commission" ? "salary + commission" : "flat salary"}
+                      {s.staff_no ? `#${s.staff_no} · ` : ""}{s.position || "—"}{s.aba_number ? ` · ABA ${s.aba_number}` : ""}
                     </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: C.goldBright }}>{money(s.monthly_salary)}<span style={{ fontSize: 11, color: C.textFaint, fontWeight: 400 }}>/mo</span></div>
-                    <button onClick={() => { setStaffForm({ name: s.name || "", name_kh: s.name_kh || "", position: s.position || "", pay_type: s.pay_type || "salary", monthly_salary: String(s.monthly_salary ?? ""), phone: s.phone || "", start_date: s.start_date || "", notes: s.notes || "" }); setEditingStaffId(s.id); setShowNewStaff(true); }} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}>Edit</button>
+                    <button onClick={() => { setStaffForm({ staff_no: s.staff_no || "", name: s.name || "", name_kh: s.name_kh || "", gender: s.gender || "", position: s.position || "", pay_type: s.pay_type || "salary", monthly_salary: String(s.monthly_salary ?? ""), aba_number: s.aba_number || "", phone: s.phone || "", start_date: s.start_date || "", notes: s.notes || "" }); setEditingStaffId(s.id); setShowNewStaff(true); }} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}>Edit</button>
                     <button onClick={() => toggleActive(s)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}>{s.active ? "Deactivate" : "Reactivate"}</button>
                     <button onClick={() => deleteStaff(s)} style={{ background: "none", border: "none", color: C.textFaint, cursor: "pointer" }}><Trash2 size={15} /></button>
                   </div>
@@ -6925,7 +6935,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
             <div>
               <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Monthly payroll</h2>
-              <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Pick a month, fill in commission and advances, then print the payslips</div>
+              <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Days worked × daily rate, plus incentive, minus advances</div>
             </div>
             <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}>
               {payrollMonthOptions().map((k) => <option key={k} value={k}>{monthLabel(k)}</option>)}
@@ -6940,7 +6950,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
               <button onClick={startRun} disabled={busy} className="primarybtn" style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "12px 22px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 Start payroll for {monthLabel(month)}
               </button>
-              <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: 12 }}>Pulls in every active staff member with their current salary.</div>
+              <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: 12 }}>Brings in every active staff member at {STANDARD_DAYS} days.</div>
             </div>
           ) : (
             <>
@@ -6948,12 +6958,11 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                 <div>
                   <div style={{ fontSize: 11, color: C.textFaint, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Total to pay</div>
                   <div style={{ fontSize: 26, fontWeight: 700, color: C.goldBright, marginTop: 2 }}>{money(total)}</div>
-                  <div style={{ fontSize: 11.5, color: locked ? C.emerald : C.textFaint, marginTop: 3 }}>
-                    {locked ? "Locked — marked as paid" : "Draft — not locked yet"} · {rows.length} staff
-                  </div>
+                  <div style={{ fontSize: 11.5, color: locked ? C.emerald : C.textFaint, marginTop: 3 }}>{locked ? "Locked — marked as paid" : "Draft — not locked yet"} · {rows.length} staff</div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button onClick={() => setPrintDocs(rows)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Print all payslips</button>
+                  <button onClick={() => setPrintSheet(true)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Print payroll sheet</button>
+                  <button onClick={() => setPrintSlips(rows)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Print payslips</button>
                   {!locked && (
                     <button onClick={saveRun} disabled={busy || !dirty} className="primarybtn" style={{ background: dirty ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.surfaceHover, color: dirty ? "#1A1508" : C.textFaint, border: dirty ? "none" : `1px solid ${C.border}`, borderRadius: 9, padding: "10px 18px", fontSize: 12.5, fontWeight: 700, cursor: dirty ? "pointer" : "default" }}>
                       {dirty ? "Save changes" : "Saved"}
@@ -6968,38 +6977,45 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
               </div>
 
               <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12 }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 900 }}>
                   <thead>
                     <tr style={{ color: C.textFaint, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                       <th style={{ textAlign: "left", padding: "12px 14px", fontWeight: 700 }}>Staff</th>
-                      <th style={{ textAlign: "right", padding: "12px 8px", fontWeight: 700 }}>Salary</th>
-                      <th style={{ textAlign: "right", padding: "12px 8px", fontWeight: 700 }}>Commission</th>
-                      <th style={{ textAlign: "right", padding: "12px 8px", fontWeight: 700 }}>Bonus</th>
-                      <th style={{ textAlign: "right", padding: "12px 8px", fontWeight: 700 }}>Advance</th>
-                      <th style={{ textAlign: "right", padding: "12px 8px", fontWeight: 700 }}>Other −</th>
-                      <th style={{ textAlign: "right", padding: "12px 14px", fontWeight: 700 }}>Net pay</th>
+                      <th style={thStyle}>Base</th>
+                      <th style={thStyle}>Days</th>
+                      <th style={thStyle}>Earned</th>
+                      <th style={thStyle}>Incentive</th>
+                      <th style={thStyle}>Advance</th>
+                      <th style={thStyle}>Other −</th>
+                      <th style={{ ...thStyle, padding: "12px 14px" }}>Net pay</th>
                       <th style={{ padding: "12px 10px" }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((r) => (
                       <tr key={r.id} style={{ borderTop: `1px solid ${C.border}` }}>
-                        <td style={{ padding: "10px 14px" }}>
-                          <div style={{ fontWeight: 700 }}>{r.staff_name}</div>
-                          <div style={{ fontSize: 11, color: C.textFaint }}>{r.staff_position || "—"}</div>
+                        <td style={{ padding: "10px 14px", minWidth: 170 }}>
+                          <div style={{ fontWeight: 700 }}>{r.staff_name_kh || r.staff_name}</div>
+                          <div style={{ fontSize: 11, color: C.textFaint }}>
+                            {r.staff_position || "—"} · {money(dailyRate(r))}/day
+                          </div>
                         </td>
-                        {["base_salary", "commission", "bonus", "advance", "other_deduction"].map((f) => (
-                          <td key={f} style={{ padding: "10px 8px", width: 96 }}>
-                            {locked ? (
-                              <div style={{ textAlign: "right", color: C.textDim }}>{money(r[f])}</div>
-                            ) : (
-                              <input style={cellInput} inputMode="decimal" value={r[f] ?? ""} onChange={(e) => editRow(r.id, f, e.target.value)} />
-                            )}
+                        {["base_salary", "days_worked"].map((f) => (
+                          <td key={f} style={{ padding: "10px 8px", width: 88 }}>
+                            {locked ? <div style={{ textAlign: "right", color: C.textDim }}>{f === "days_worked" ? pnum(r[f]) : money(r[f])}</div>
+                              : <input style={cellInput} inputMode="decimal" value={r[f] ?? ""} onChange={(e) => editRow(r.id, f, e.target.value)} />}
+                          </td>
+                        ))}
+                        <td style={{ padding: "10px 8px", textAlign: "right", color: C.textDim, whiteSpace: "nowrap" }}>{money(earnedOf(r))}</td>
+                        {["commission", "advance", "other_deduction"].map((f) => (
+                          <td key={f} style={{ padding: "10px 8px", width: 88 }}>
+                            {locked ? <div style={{ textAlign: "right", color: C.textDim }}>{money(r[f])}</div>
+                              : <input style={cellInput} inputMode="decimal" value={r[f] ?? ""} onChange={(e) => editRow(r.id, f, e.target.value)} />}
                           </td>
                         ))}
                         <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: C.goldBright, whiteSpace: "nowrap" }}>{money(netOf(r))}</td>
                         <td style={{ padding: "10px 10px", textAlign: "right" }}>
-                          <button onClick={() => setPrintDocs([r])} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "6px 10px", fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Payslip</button>
+                          <button onClick={() => setPrintSlips([r])} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "6px 10px", fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Payslip</button>
                         </td>
                       </tr>
                     ))}
@@ -7020,7 +7036,107 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   );
 }
 
-// ----------------------------- payslip printing -----------------------------
+// ------------------------- printing: the payroll sheet -------------------------
+
+function PayrollSheetPrintView({ rows, month, total, onClose }) {
+  const cell = { border: "1px solid #000", padding: "4px 6px", fontSize: 10.5 };
+  const head = { ...cell, fontWeight: 700, textAlign: "center", background: "#f0f0f0" };
+  const sumBase = rows.reduce((a, r) => a + pnum(r.base_salary), 0);
+  const sumInc = rows.reduce((a, r) => a + pnum(r.commission), 0);
+
+  return createPortal(
+    <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflow: "auto" }}>
+      <style>{`
+        @page { size: A4 landscape; margin: 8mm; }
+        @media print {
+          .doc-no-print { display: none !important; }
+          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .doc-print-root { display: block !important; position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; z-index: auto !important; }
+        }
+      `}</style>
+      <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
+        <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>Payroll sheet — {monthLabel(month)} (landscape)</span>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
+          <button onClick={onClose} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
+        </div>
+      </div>
+
+      <div style={{ background: "#fff", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", padding: "18px 20px" }}>
+        <div style={{ position: "relative", marginBottom: 8, minHeight: 70 }}>
+          <img src={CHOUMHEAN_LOGO} alt="" style={{ width: 68, height: 68, objectFit: "contain", position: "absolute", left: 0, top: 0 }} />
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 19, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>តារាងប្រាក់បៀវត្សរ៍ប្រចាំខែ {khMonthLabel(month)}</div>
+            <div style={{ fontSize: 11, marginTop: 2 }}>ការិយាល័យកណ្តាល</div>
+          </div>
+        </div>
+
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000" }}>
+          <thead>
+            <tr>
+              <td style={head}>ល.រ</td>
+              <td style={head}>អត្តលេខ</td>
+              <td style={head}>គោត្តនាម និង នាម</td>
+              <td style={head}>ភេទ</td>
+              <td style={head}>មុខតំណែង</td>
+              <td style={head}>Start Date</td>
+              <td style={head}>ថ្ងៃធ្វើការ</td>
+              <td style={head}>អត្រាប្រចាំថ្ងៃ</td>
+              <td style={head}>ប្រាក់បៀវត្សគោល</td>
+              <td style={head}>Incentive</td>
+              <td style={head}>ប្រាក់បៀវត្សត្រូវបាន</td>
+              <td style={head}>ABA Number</td>
+              <td style={head}>Name</td>
+              <td style={head}>ហត្ថលេខា</td>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id}>
+                <td style={{ ...cell, textAlign: "center" }}>{i + 1}</td>
+                <td style={{ ...cell, textAlign: "center" }}>{r.staff_no || ""}</td>
+                <td style={cell}>{r.staff_name_kh || r.staff_name}</td>
+                <td style={{ ...cell, textAlign: "center" }}>{r.gender === "F" ? "ស" : r.gender === "M" ? "ប" : ""}</td>
+                <td style={cell}>{r.staff_position || ""}</td>
+                <td style={{ ...cell, textAlign: "center" }}>{r.staff_start_date ? new Date(r.staff_start_date + "T00:00:00").toLocaleDateString("en-GB") : ""}</td>
+                <td style={{ ...cell, textAlign: "center" }}>{pnum(r.days_worked)}</td>
+                <td style={{ ...cell, textAlign: "right" }}>{dailyRate(r).toFixed(2)}</td>
+                <td style={{ ...cell, textAlign: "right" }}>{pnum(r.base_salary).toFixed(2)}</td>
+                <td style={{ ...cell, textAlign: "right" }}>{pnum(r.commission).toFixed(2)}</td>
+                <td style={{ ...cell, textAlign: "right", fontWeight: 700 }}>{netOf(r).toFixed(2)}</td>
+                <td style={{ ...cell, textAlign: "center" }}>{r.aba_number || ""}</td>
+                <td style={cell}>{r.staff_name}</td>
+                <td style={{ ...cell, minWidth: 70 }}></td>
+              </tr>
+            ))}
+            <tr style={{ fontWeight: 700 }}>
+              <td style={{ ...cell, textAlign: "center" }} colSpan={4}>សរុប</td>
+              <td style={{ ...cell, textAlign: "center" }} colSpan={2}>ចំនួនបុគ្គលិក = {rows.length} នាក់</td>
+              <td style={cell}></td>
+              <td style={cell}></td>
+              <td style={{ ...cell, textAlign: "right" }}>{sumBase.toFixed(2)}</td>
+              <td style={{ ...cell, textAlign: "right" }}>{sumInc.toFixed(2)}</td>
+              <td style={{ ...cell, textAlign: "right" }}>{total.toFixed(2)}</td>
+              <td style={cell}></td>
+              <td style={cell}></td>
+              <td style={cell}></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 26, fontSize: 11 }}>
+          <div style={{ width: "30%", textAlign: "center" }}><div style={{ height: 90 }} /><div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>អ្នករៀបចំ / Prepared by</div></div>
+          <div style={{ width: "30%", textAlign: "center" }}><div style={{ height: 90 }} /><div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>អ្នកត្រួតពិនិត្យ / Checked by</div></div>
+          <div style={{ width: "30%", textAlign: "center" }}><div style={{ height: 90 }} /><div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>អនុម័ត / Approved by</div></div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// --------------------------- printing: payslips ---------------------------
 
 function PayslipPrintView({ slips, month, onClose }) {
   return createPortal(
@@ -7036,17 +7152,13 @@ function PayslipPrintView({ slips, month, onClose }) {
         }
       `}</style>
       <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
-        <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
-          Payslips — {monthLabel(month)} ({slips.length})
-        </span>
+        <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>Payslips — {monthLabel(month)} ({slips.length})</span>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
           <button onClick={onClose} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
         </div>
       </div>
-      {slips.map((s, i) => (
-        <SinglePayslip key={s.id} s={s} month={month} pageBreak={i !== slips.length - 1} />
-      ))}
+      {slips.map((s, i) => <SinglePayslip key={s.id} s={s} month={month} pageBreak={i !== slips.length - 1} />)}
     </div>,
     document.body
   );
@@ -7075,14 +7187,15 @@ function SinglePayslip({ s, month, pageBreak }) {
   }, [s]);
 
   const cell = { border: "1px solid #000", padding: "6px 10px" };
+  const earned = earnedOf(s);
   const earnings = [
-    { label: "ប្រាក់ខែ / Basic salary", v: num(s.base_salary) },
-    { label: "កម្រៃជើងសារ / Commission", v: num(s.commission) },
-    { label: "ប្រាក់រង្វាន់ / Bonus", v: num(s.bonus) },
-  ].filter((r) => r.v !== 0 || r.label.includes("Basic"));
+    { label: `ប្រាក់បៀវត្ស / Salary — ${pnum(s.days_worked)} ថ្ងៃ × $${dailyRate(s).toFixed(2)}`, v: earned },
+    { label: "Incentive / កម្រៃលើកទឹកចិត្ត", v: pnum(s.commission) },
+    { label: "ប្រាក់រង្វាន់ / Bonus", v: pnum(s.bonus) },
+  ].filter((r) => r.v !== 0 || r.label.includes("Salary"));
   const deductions = [
-    { label: "ប្រាក់បុរេប្រទាន / Advance", v: num(s.advance) },
-    { label: "កាត់ផ្សេងៗ / Other deduction", v: num(s.other_deduction) },
+    { label: "ប្រាក់បុរេប្រទាន / Advance", v: pnum(s.advance) },
+    { label: "កាត់ផ្សេងៗ / Other deduction", v: pnum(s.other_deduction) },
   ].filter((r) => r.v !== 0);
 
   const gross = earnings.reduce((a, r) => a + r.v, 0);
@@ -7090,16 +7203,7 @@ function SinglePayslip({ s, month, pageBreak }) {
   const net = gross - totalDed;
 
   return (
-    <div
-      className="doc-page"
-      style={{
-        width: PAGE_W, height: PAGE_H, maxWidth: "100%", margin: "0 auto", overflow: "hidden",
-        background: "#fff", color: "#1a1a1a",
-        fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 12,
-        pageBreakAfter: pageBreak ? "always" : "auto", breakAfter: pageBreak ? "page" : "auto",
-        pageBreakInside: "avoid", breakInside: "avoid",
-      }}
-    >
+    <div className="doc-page" style={{ width: PAGE_W, height: PAGE_H, maxWidth: "100%", margin: "0 auto", overflow: "hidden", background: "#fff", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 12, pageBreakAfter: pageBreak ? "always" : "auto", breakAfter: pageBreak ? "page" : "auto", pageBreakInside: "avoid", breakInside: "avoid" }}>
       <div ref={innerRef} style={{ width: PAGE_W, boxSizing: "border-box", padding: "16px 30px 18px 30px", transform: `scale(${scale})`, transformOrigin: "top left" }}>
 
         <div style={{ position: "relative", marginBottom: 10, minHeight: 92 }}>
@@ -7120,12 +7224,14 @@ function SinglePayslip({ s, month, pageBreak }) {
           <tbody>
             <tr>
               <td style={{ ...cell, width: "55%", verticalAlign: "top" }}>
-                <div><b>ឈ្មោះ / Name :</b> {s.staff_name}</div>
+                <div><b>ឈ្មោះ / Name :</b> {s.staff_name_kh || s.staff_name}{s.staff_name_kh && s.staff_name && s.staff_name_kh !== s.staff_name ? ` (${s.staff_name})` : ""}</div>
                 <div style={{ marginTop: 3 }}><b>មុខតំណែង / Position :</b> {s.staff_position || "—"}</div>
+                {s.staff_no && <div style={{ marginTop: 3 }}><b>អត្តលេខ / Staff ID :</b> {s.staff_no}</div>}
               </td>
               <td style={{ ...cell, verticalAlign: "top" }}>
-                <div><b>ខែ / Month :</b> {monthLabel(month)}</div>
-                <div style={{ marginTop: 3 }}><b>កាលបរិច្ឆេទ / Date :</b> {new Date().toLocaleDateString("en-GB")}</div>
+                <div><b>ខែ / Month :</b> {khMonthLabel(month)}</div>
+                <div style={{ marginTop: 3 }}><b>ថ្ងៃធ្វើការ / Days :</b> {pnum(s.days_worked)} / {pnum(s.standard_days) || 26}</div>
+                {s.aba_number && <div style={{ marginTop: 3 }}><b>ABA :</b> {s.aba_number}</div>}
               </td>
             </tr>
           </tbody>
@@ -7138,15 +7244,9 @@ function SinglePayslip({ s, month, pageBreak }) {
               <td style={{ ...cell, textAlign: "right", width: 140 }}>ចំនួន / Amount</td>
             </tr>
             {earnings.map((r) => (
-              <tr key={r.label}>
-                <td style={cell}>{r.label}</td>
-                <td style={{ ...cell, textAlign: "right" }}>${r.v.toFixed(2)}</td>
-              </tr>
+              <tr key={r.label}><td style={cell}>{r.label}</td><td style={{ ...cell, textAlign: "right" }}>${r.v.toFixed(2)}</td></tr>
             ))}
-            <tr style={{ fontWeight: 700 }}>
-              <td style={cell}>សរុបចំណូល / Gross pay</td>
-              <td style={{ ...cell, textAlign: "right" }}>${gross.toFixed(2)}</td>
-            </tr>
+            <tr style={{ fontWeight: 700 }}><td style={cell}>សរុបចំណូល / Gross pay</td><td style={{ ...cell, textAlign: "right" }}>${gross.toFixed(2)}</td></tr>
           </tbody>
         </table>
 
@@ -7158,15 +7258,9 @@ function SinglePayslip({ s, month, pageBreak }) {
                 <td style={{ ...cell, textAlign: "right", width: 140 }}>ចំនួន / Amount</td>
               </tr>
               {deductions.map((r) => (
-                <tr key={r.label}>
-                  <td style={cell}>{r.label}</td>
-                  <td style={{ ...cell, textAlign: "right" }}>−${r.v.toFixed(2)}</td>
-                </tr>
+                <tr key={r.label}><td style={cell}>{r.label}</td><td style={{ ...cell, textAlign: "right" }}>−${r.v.toFixed(2)}</td></tr>
               ))}
-              <tr style={{ fontWeight: 700 }}>
-                <td style={cell}>សរុបកាត់កង / Total deductions</td>
-                <td style={{ ...cell, textAlign: "right" }}>−${totalDed.toFixed(2)}</td>
-              </tr>
+              <tr style={{ fontWeight: 700 }}><td style={cell}>សរុបកាត់កង / Total deductions</td><td style={{ ...cell, textAlign: "right" }}>−${totalDed.toFixed(2)}</td></tr>
             </tbody>
           </table>
         )}
