@@ -831,9 +831,19 @@ export default function MeraConsignmentApp() {
         .primarybtn:hover { box-shadow: 0 4px 20px rgba(201,169,97,0.35); transform: translateY(-1px); }
         ::-webkit-scrollbar { height: 6px; width: 6px; }
         ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 3px; }
+        /* Phones: the page must never scroll sideways, and the strip beside it
+           must not show through white when something does overflow. */
+        html, body { background: ${C.bg}; overflow-x: hidden; max-width: 100%; }
+        .mera-app-root { overflow-x: hidden; max-width: 100vw; }
+        @media (max-width: 620px) {
+          .mera-shell { padding: 24px 14px 0 !important; }
+          .mera-app-root h1 { font-size: 25px !important; line-height: 1.15; }
+          .mera-tabs button { padding: 7px 11px !important; font-size: 11.5px !important; }
+          .mera-subtabs button { font-size: 12px !important; margin-right: 12px !important; }
+        }
       `}</style>
 
-      <div style={{ maxWidth: 920, margin: "0 auto", padding: "40px 20px 0" }}>
+      <div className="mera-shell" style={{ maxWidth: 920, margin: "0 auto", padding: "40px 20px 0" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 17, letterSpacing: "0.2em", textTransform: "uppercase", color: C.gold, fontWeight: 700 }}>
@@ -844,7 +854,7 @@ export default function MeraConsignmentApp() {
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             {page === "sales" && salesSubPage === "consignment" && (
               <>
                 <select
@@ -865,11 +875,14 @@ export default function MeraConsignmentApp() {
                 </button>
               </>
             )}
+            {/* Kept together in one group so on a narrow phone they wrap as a
+                pair instead of the sign-out button dropping to its own line. */}
+            <div style={{ display: "flex", gap: 10, marginLeft: "auto" }}>
             {authUser?.email === OWNER_EMAIL && (
               <button
                 onClick={openActivityLog}
                 title="Activity log"
-                style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.textFaint, borderRadius: 10, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+                style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.textFaint, borderRadius: 10, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
               >
                 <ClipboardList size={16} />
               </button>
@@ -881,10 +894,11 @@ export default function MeraConsignmentApp() {
             >
               <LogOut size={16} />
             </button>
+            </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 4 }}>
+        <div className="mera-tabs" style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 4, flexWrap: "wrap", rowGap: 8 }}>
           <button
             onClick={() => setPage("overview")}
             style={{
@@ -982,7 +996,7 @@ export default function MeraConsignmentApp() {
             : <div style={{ padding: 40, color: C.textFaint, fontSize: 14 }}>You don't have access to payroll.</div>
         ) : page === "sales" ? (
           <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 18, marginTop: 4 }}>
+            <div className="mera-subtabs" style={{ display: "flex", gap: 6, marginBottom: 18, marginTop: 4, flexWrap: "wrap" }}>
               <button
                 onClick={() => setSalesSubPage("total")}
                 style={{
@@ -1029,7 +1043,7 @@ export default function MeraConsignmentApp() {
             ) : (
         <>
 
-        <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+        <div className="mera-subtabs" style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
           <button
             onClick={() => setConsignmentSubView("regular")}
             style={{
@@ -1495,6 +1509,14 @@ export default function MeraConsignmentApp() {
         </div>
       )}
 
+      </>
+      )}
+      </>
+            )}
+          </>
+      ) : null}
+      {/* Activity log sits at the top level of the app so the header button
+          works on every page, not only Sales > Consignment. */}
       {showActivityLog && (
         <div onClick={() => setShowActivityLog(false)} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 560, maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
@@ -1531,12 +1553,6 @@ export default function MeraConsignmentApp() {
           </div>
         </div>
       )}
-      </>
-      )}
-      </>
-            )}
-          </>
-      ) : null}
       </div>
     </div>
   );
