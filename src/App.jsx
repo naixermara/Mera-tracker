@@ -1553,6 +1553,12 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
   const [videoForm, setVideoForm] = useState({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" });
   const [showHistory, setShowHistory] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  // Ad boosting (Facebook / TikTok / …) — one total per platform per month.
+  const [adRows, setAdRows] = useState([]);
+  const [adTableMissing, setAdTableMissing] = useState(false);
+  const [showAds, setShowAds] = useState(false);
+  const [adDraft, setAdDraft] = useState([]);
+  const [adBusy, setAdBusy] = useState(false);
   const [showLogPayment, setShowLogPayment] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
   const [showPayHistory, setShowPayHistory] = useState(null);
@@ -1776,6 +1782,79 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
     }
   }
 
+  // Loaded on its own so that a missing ad_spend table degrades to "run the SQL"
+  // instead of breaking the whole KOL page.
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await sbFetch("ad_spend?select=*");
+        setAdRows(rows || []);
+        setAdTableMissing(false);
+      } catch (e) {
+        setAdTableMissing(true);
+      }
+    })();
+  }, []);
+
+  const DEFAULT_PLATFORMS = ["Facebook", "TikTok"];
+
+  const monthAdRows = useMemo(
+    () => adRows.filter((r) => r.month === selectedMonth),
+    [adRows, selectedMonth]
+  );
+  const adTotal = useMemo(
+    () => monthAdRows.reduce((a, r) => a + Number(r.amount || 0), 0),
+    [monthAdRows]
+  );
+
+  // Rebuild the editable draft whenever the month or the saved rows change.
+  useEffect(() => {
+    const names = [...new Set([...DEFAULT_PLATFORMS, ...monthAdRows.map((r) => r.platform)])];
+    setAdDraft(
+      names.map((name) => {
+        const existing = monthAdRows.find((r) => r.platform === name);
+        return {
+          platform: name,
+          id: existing ? existing.id : null,
+          amount: existing ? String(existing.amount ?? "") : "",
+          notes: existing ? existing.notes || "" : "",
+        };
+      })
+    );
+  }, [selectedMonth, adRows]);
+
+  function editAd(idx, field, value) {
+    setAdDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+
+  async function saveAds() {
+    setAdBusy(true);
+    try {
+      const saved = [];
+      for (const r of adDraft) {
+        const amount = parseFloat(r.amount) || 0;
+        const body = { month: selectedMonth, platform: r.platform, amount, notes: r.notes || null };
+        if (r.id) {
+          await sbFetch(`ad_spend?id=eq.${r.id}`, { method: "PATCH", body: JSON.stringify(body) });
+          saved.push({ ...body, id: r.id });
+        } else if (amount > 0 || (r.notes || "").trim()) {
+          const [ins] = await sbFetch("ad_spend", {
+            method: "POST",
+            body: JSON.stringify({ ...body, created_by: authUser?.email || "unknown" }),
+          });
+          if (ins) saved.push(ins);
+        }
+      }
+      setAdRows((prev) => [...prev.filter((r) => r.month !== selectedMonth), ...saved]);
+      setSaveError(false);
+      logActivity?.("Updated ad boosting", monthLabel(selectedMonth), "$" + saved.reduce((a, r) => a + Number(r.amount || 0), 0).toFixed(2));
+    } catch (e) {
+      setSaveError(true);
+    } finally {
+      setAdBusy(false);
+    }
+  }
+
   const enrichedKols = useMemo(() => {
     if (!kols) return [];
     return kols.map((k) => {
@@ -1865,9 +1944,19 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 24 }}>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
-          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Spend — {monthLabel(selectedMonth)}</div>
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>KOL spend — {monthLabel(selectedMonth)}</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthSpend.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>with ads: ${(totals.monthSpend + adTotal).toFixed(2)}</div>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowAds(!showAds)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showAds ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Ads boosting</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${adTotal.toFixed(2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>Facebook + TikTok · tap to edit</div>
+        </button>
         <button
           type="button"
           onClick={() => setShowPaidBreakdown(!showPaidBreakdown)}
@@ -1886,6 +1975,64 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6 }}>{totals.videosLeft}</div>
         </div>
       </div>
+
+      {showAds && (
+        <div style={{ background: C.surface, border: `1px solid ${C.gold}55`, borderRadius: 12, padding: "18px 20px", marginBottom: 22 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+            Ad boosting — {monthLabel(selectedMonth)}
+          </div>
+          <div style={{ fontSize: 11.5, color: C.textFaint, marginBottom: 14 }}>
+            What you spent boosting posts this month. One total per platform — the note is optional.
+          </div>
+
+          {adTableMissing ? (
+            <div style={{ background: C.roseBg, color: C.rose, padding: "12px 14px", borderRadius: 8, fontSize: 12.5, border: `1px solid ${C.rose}30` }}>
+              The <b>ad_spend</b> table doesn't exist yet — run the boosting SQL in Supabase, then reload.
+            </div>
+          ) : (
+            <>
+              {adDraft.map((r, idx) => (
+                <div key={r.platform} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+                  <div style={{ width: 92, fontSize: 13, fontWeight: 700 }}>{r.platform}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ color: C.textFaint, fontSize: 13 }}>$</span>
+                    <input
+                      inputMode="decimal"
+                      value={r.amount}
+                      onChange={(e) => editAd(idx, "amount", e.target.value)}
+                      placeholder="0"
+                      style={{ background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "9px 10px", fontSize: 13, width: 110, textAlign: "right", boxSizing: "border-box" }}
+                    />
+                  </div>
+                  <input
+                    value={r.notes}
+                    onChange={(e) => editAd(idx, "notes", e.target.value)}
+                    placeholder="What it went to (optional)"
+                    style={{ background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "9px 10px", fontSize: 13, flex: 1, minWidth: 200, boxSizing: "border-box" }}
+                  />
+                </div>
+              ))}
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, flexWrap: "wrap", gap: 10 }}>
+                <div style={{ fontSize: 13 }}>
+                  <span style={{ color: C.textFaint }}>Month total: </span>
+                  <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.goldBright }}>
+                    ${adDraft.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0).toFixed(2)}
+                  </b>
+                </div>
+                <button
+                  onClick={saveAds}
+                  disabled={adBusy}
+                  className="primarybtn"
+                  style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 9, padding: "10px 20px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                >
+                  {adBusy ? "Saving…" : "Save boosting"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {showPaidBreakdown && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 24 }}>
@@ -3705,6 +3852,7 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
   const [creditInvoices, setCreditInvoices] = useState([]);
   const [creditPayments, setCreditPayments] = useState([]);
   const [bigcoReports, setBigcoReports] = useState([]);
+  const [adRows, setAdRows] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -3735,6 +3883,12 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
       } finally {
         setLoading(false);
       }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try { setAdRows((await sbFetch("ad_spend?select=*")) || []); } catch (e) { /* table not created yet */ }
     })();
   }, []);
 
@@ -3772,11 +3926,14 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
     const corporateBilled = monthReports.reduce((a, r) => a + Number(r.amount || 0), 0);
     const corporateCollected = monthReports.reduce((a, r) => a + Number(r.paid || 0), 0);
 
-    return { consignmentCollected, kolSpend, creditBilled, creditCollected, corporateBilled, corporateCollected };
-  }, [consignmentVisits, kols, creditInvoices, creditPayments, bigcoReports, selectedMonth]);
+    const adSpend = adRows.filter((r) => r.month === selectedMonth).reduce((a, r) => a + Number(r.amount || 0), 0);
+
+    return { consignmentCollected, kolSpend, adSpend, creditBilled, creditCollected, corporateBilled, corporateCollected };
+  }, [consignmentVisits, kols, creditInvoices, creditPayments, bigcoReports, adRows, selectedMonth]);
 
   const totalCollected = summary.consignmentCollected + summary.corporateCollected + summary.creditCollected;
-  const netTotal = totalCollected - summary.kolSpend;
+  const marketingSpend = summary.kolSpend + summary.adSpend;
+  const netTotal = totalCollected - marketingSpend;
 
   return (
     <div>
@@ -3806,7 +3963,7 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
               {netTotal >= 0 ? "+" : "-"}${Math.abs(netTotal).toFixed(2)}
             </div>
             <div style={{ fontSize: 11, color: C.textFaint, marginTop: 6 }}>
-              ${totalCollected.toFixed(2)} collected across all 3 sales accounts, minus ${summary.kolSpend.toFixed(2)} KOL &amp; Content spend
+              ${totalCollected.toFixed(2)} collected across all 3 sales accounts, minus ${marketingSpend.toFixed(2)} marketing spend
             </div>
             <button
               type="button"
@@ -3840,9 +3997,9 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
               onClick={() => onNavigate("kol")}
               style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
             >
-              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>KOL &amp; Content</div>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.gold }}>${summary.kolSpend.toFixed(2)}</div>
-              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>spent this month</div>
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Marketing</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.gold }}>${marketingSpend.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>KOL ${summary.kolSpend.toFixed(2)} · ads ${summary.adSpend.toFixed(2)}</div>
             </button>
 
             <button
