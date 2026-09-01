@@ -6898,6 +6898,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [printBank, setPrintBank] = useState(null);
   const [printSlips, setPrintSlips] = useState(null);
   const [printSheet, setPrintSheet] = useState(false);
 
@@ -6951,6 +6952,14 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
 
   const locked = run?.status === "paid";
   const total = rows.reduce((a, r) => a + netOf(r), 0);
+  // Per-person progress: a row is first CONFIRMED (numbers agreed, row locks)
+  // and then PAID (money actually out, date stamped).
+  const confirmedCount = rows.filter((r) => r.confirmed_at).length;
+  const paidCount = rows.filter((r) => r.paid_at).length;
+  const allConfirmed = rows.length > 0 && confirmedCount === rows.length;
+  const allPaid = rows.length > 0 && paidCount === rows.length;
+  const unpaidRows = rows.filter((r) => !r.paid_at);
+  const outstanding = unpaidRows.reduce((a, r) => a + netOf(r), 0);
 
   // ---------------- staff ----------------
   async function saveStaff() {
@@ -7087,9 +7096,52 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
     }
   }
 
+  // Flip confirmed_at / paid_at on one payslip row.
+  async function setRowFlag(id, field, value) {
+    try {
+      await sbFetch(`payslips?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+      setError("");
+      return true;
+    } catch (e) {
+      setError("Couldn't update. Did you add the confirmed_at and paid_at columns in Supabase?");
+      return false;
+    }
+  }
+
+  async function confirmRow(r) {
+    if (dirty) { setError("Save your changes first."); return; }
+    await setRowFlag(r.id, "confirmed_at", new Date().toISOString());
+  }
+  function unconfirmRow(r) { return setRowFlag(r.id, "confirmed_at", null); }
+
+  async function payRow(r) {
+    const ok = await setRowFlag(r.id, "paid_at", new Date().toISOString());
+    if (ok) logActivity?.("Staff paid", r.staff_name || r.staff_name_kh, `${money(netOf(r))} · ${monthLabel(month)}`);
+  }
+  function unpayRow(r) { return setRowFlag(r.id, "paid_at", null); }
+
+  async function confirmAll() {
+    if (dirty) { setError("Save your changes first."); return; }
+    setBusy(true);
+    const now = new Date().toISOString();
+    for (const r of rows.filter((x) => !x.confirmed_at)) await setRowFlag(r.id, "confirmed_at", now);
+    setBusy(false);
+  }
+
+  async function payAll() {
+    if (!window.confirm(`Mark all ${unpaidRows.length} remaining staff as paid?`)) return;
+    setBusy(true);
+    const now = new Date().toISOString();
+    for (const r of unpaidRows) await setRowFlag(r.id, "paid_at", now);
+    logActivity?.("Payroll paid — all remaining staff", monthLabel(month), money(outstanding));
+    setBusy(false);
+  }
+
   async function markPaid() {
     if (dirty) { setError("Save your changes first."); return; }
-    if (!window.confirm(`Lock ${monthLabel(month)} as paid? You can reopen it later if you need to.`)) return;
+    if (!allPaid) { setError(`${unpaidRows.length} staff still not marked paid.`); return; }
+    if (!window.confirm(`Close ${monthLabel(month)}? Everything locks, but you can reopen it later.`)) return;
     try {
       await sbFetch(`payroll_runs?id=eq.${run.id}`, { method: "PATCH", body: JSON.stringify({ status: "paid", paid_at: new Date().toISOString(), total }) });
       setRun((p) => ({ ...p, status: "paid", total }));
@@ -7126,6 +7178,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
     <div>
       {printSlips && <PayslipPrintView slips={printSlips} month={month} onClose={() => setPrintSlips(null)} />}
       {printSheet && <PayrollSheetPrintView rows={rows} month={month} total={total} onClose={() => setPrintSheet(false)} />}
+      {printBank && <BankTransferPrintView rows={printBank} month={month} onClose={() => setPrintBank(null)} />}
 
       <div style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 18 }}>
         {[{ key: "run", label: "Monthly payroll" }, { key: "staff", label: "Staff" }].map((t) => (
@@ -7248,20 +7301,32 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                 <div>
                   <div style={{ fontSize: 11, color: C.textFaint, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Total to pay</div>
                   <div style={{ fontSize: 26, fontWeight: 700, color: C.goldBright, marginTop: 2 }}>{money(total)}</div>
-                  <div style={{ fontSize: 11.5, color: locked ? C.emerald : C.textFaint, marginTop: 3 }}>{locked ? "Locked — marked as paid" : "Draft — not locked yet"} · {rows.length} staff</div>
+                  <div style={{ fontSize: 11.5, color: locked ? C.emerald : C.textFaint, marginTop: 3 }}>{locked ? "Closed — all staff paid" : "Draft — not closed yet"} · {rows.length} staff</div>
+                  <div style={{ fontSize: 11.5, marginTop: 5, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ color: allConfirmed ? C.emerald : C.amber }}>{confirmedCount} of {rows.length} confirmed</span>
+                    <span style={{ color: allPaid ? C.emerald : C.textDim }}>{paidCount} of {rows.length} paid</span>
+                    {outstanding > 0 && <span style={{ color: C.goldBright, fontWeight: 700 }}>{money(outstanding)} still to pay</span>}
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={() => setPrintSheet(true)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Print payroll sheet</button>
                   <button onClick={() => setPrintSlips(rows)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Print payslips</button>
+                  <button onClick={() => setPrintBank(unpaidRows.length ? unpaidRows : rows)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Bank list</button>
                   {!locked && (
                     <button onClick={saveRun} disabled={busy || !dirty} className="primarybtn" style={{ background: dirty ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.surfaceHover, color: dirty ? "#1A1508" : C.textFaint, border: dirty ? "none" : `1px solid ${C.border}`, borderRadius: 9, padding: "10px 18px", fontSize: 12.5, fontWeight: 700, cursor: dirty ? "pointer" : "default" }}>
                       {dirty ? "Save changes" : "Saved"}
                     </button>
                   )}
+                  {!locked && !allConfirmed && (
+                    <button onClick={confirmAll} disabled={busy} style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, color: C.amber, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Confirm all</button>
+                  )}
+                  {!locked && allConfirmed && !allPaid && (
+                    <button onClick={payAll} disabled={busy} style={{ background: C.emeraldBg, border: `1px solid ${C.emerald}55`, color: C.emerald, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Mark all paid</button>
+                  )}
                   {locked ? (
                     <button onClick={reopen} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, cursor: "pointer" }}>Reopen</button>
                   ) : (
-                    <button onClick={markPaid} style={{ background: C.emeraldBg, border: `1px solid ${C.emerald}55`, color: C.emerald, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Mark as paid</button>
+                    <button onClick={markPaid} disabled={!allPaid} title={allPaid ? "" : "Mark every staff member paid first"} style={{ background: allPaid ? C.emeraldBg : "none", border: `1px solid ${allPaid ? C.emerald + "55" : C.border}`, color: allPaid ? C.emerald : C.textFaint, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: allPaid ? "pointer" : "default" }}>Close month</button>
                   )}
                 </div>
               </div>
@@ -7278,11 +7343,14 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                       <th style={thStyle}>Advance</th>
                       <th style={thStyle}>Other −</th>
                       <th style={{ ...thStyle, padding: "12px 14px" }}>Net pay</th>
+                      <th style={{ textAlign: "left", padding: "12px 10px", fontWeight: 700 }}>Status</th>
                       <th style={{ padding: "12px 10px" }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
+                    {rows.map((r) => {
+                      const rowLocked = locked || !!r.confirmed_at;
+                      return (
                       <tr key={r.id} style={{ borderTop: `1px solid ${C.border}` }}>
                         <td style={{ padding: "10px 14px", minWidth: 170 }}>
                           <div style={{ fontWeight: 700 }}>{r.staff_name_kh || r.staff_name}</div>
@@ -7292,23 +7360,45 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                         </td>
                         {["base_salary", "days_worked"].map((f) => (
                           <td key={f} style={{ padding: "10px 8px", width: 88 }}>
-                            {locked ? <div style={{ textAlign: "right", color: C.textDim }}>{f === "days_worked" ? pnum(r[f]) : money(r[f])}</div>
+                            {rowLocked ? <div style={{ textAlign: "right", color: C.textDim }}>{f === "days_worked" ? pnum(r[f]) : money(r[f])}</div>
                               : <input style={cellInput} inputMode="decimal" value={r[f] ?? ""} onChange={(e) => editRow(r.id, f, e.target.value)} />}
                           </td>
                         ))}
                         <td style={{ padding: "10px 8px", textAlign: "right", color: C.textDim, whiteSpace: "nowrap" }}>{money(earnedOf(r))}</td>
                         {["commission", "advance", "other_deduction"].map((f) => (
                           <td key={f} style={{ padding: "10px 8px", width: 88 }}>
-                            {locked ? <div style={{ textAlign: "right", color: C.textDim }}>{money(r[f])}</div>
+                            {rowLocked ? <div style={{ textAlign: "right", color: C.textDim }}>{money(r[f])}</div>
                               : <input style={cellInput} inputMode="decimal" value={r[f] ?? ""} onChange={(e) => editRow(r.id, f, e.target.value)} />}
                           </td>
                         ))}
                         <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: C.goldBright, whiteSpace: "nowrap" }}>{money(netOf(r))}</td>
-                        <td style={{ padding: "10px 10px", textAlign: "right" }}>
-                          <button onClick={() => setPrintSlips([r])} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "6px 10px", fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>Payslip</button>
+                        <td style={{ padding: "10px 10px", whiteSpace: "nowrap" }}>
+                          {r.paid_at ? (
+                            <span style={{ color: C.emerald, fontWeight: 700, fontSize: 11.5 }}>✓ Paid · {fmtDate(String(r.paid_at).slice(0, 10))}</span>
+                          ) : r.confirmed_at ? (
+                            <span style={{ color: C.amber, fontWeight: 700, fontSize: 11.5 }}>Confirmed — not paid</span>
+                          ) : (
+                            <span style={{ color: C.textFaint, fontSize: 11.5 }}>Not confirmed</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "10px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
+                          {!locked && !r.confirmed_at && (
+                            <button onClick={() => confirmRow(r)} style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, color: C.amber, borderRadius: 8, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", marginRight: 6 }}>Confirm</button>
+                          )}
+                          {!locked && r.confirmed_at && !r.paid_at && (
+                            <>
+                              <button onClick={() => payRow(r)} style={{ background: C.emeraldBg, border: `1px solid ${C.emerald}55`, color: C.emerald, borderRadius: 8, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", marginRight: 6 }}>Mark paid</button>
+                              <button onClick={() => unconfirmRow(r)} title="Unlock this row to edit it again" style={{ background: "none", border: `1px solid ${C.border}`, color: C.textFaint, borderRadius: 8, padding: "6px 8px", fontSize: 11.5, cursor: "pointer", marginRight: 6 }}>Undo</button>
+                            </>
+                          )}
+                          {!locked && r.paid_at && (
+                            <button onClick={() => unpayRow(r)} title="Mark this person as not paid again" style={{ background: "none", border: `1px solid ${C.border}`, color: C.textFaint, borderRadius: 8, padding: "6px 8px", fontSize: 11.5, cursor: "pointer", marginRight: 6 }}>Undo</button>
+                          )}
+                          <button onClick={() => setPrintSlips([r])} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "6px 10px", fontSize: 11.5, cursor: "pointer" }}>Payslip</button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -7427,6 +7517,80 @@ function PayrollSheetPrintView({ rows, month, total, onClose }) {
 }
 
 // --------------------------- printing: payslips ---------------------------
+
+function BankTransferPrintView({ rows, month, onClose }) {
+  const total = rows.reduce((a, r) => a + netOf(r), 0);
+  return createPortal(
+    <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
+      <style>{`
+        @page { size: A4; margin: 12mm; }
+        @media print {
+          .doc-no-print { display: none !important; }
+          html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; }
+          .doc-print-root { display: block !important; position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; z-index: auto !important; }
+        }
+      `}</style>
+      <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
+        <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>Bank payment list — {monthLabel(month)} ({rows.length} staff)</span>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
+          <button onClick={onClose} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
+        </div>
+      </div>
+
+      <div style={{ width: 690, margin: "0 auto", padding: "18px 0 24px", color: "#1a1a1a", fontFamily: "'Battambang', 'Khmer OS', Arial, sans-serif", fontSize: 12.5 }}>
+        <div style={{ textAlign: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
+          <div style={{ fontSize: 11, color: "#333" }}>CHOUMHEAN TRADING CO., LTD.</div>
+        </div>
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, textDecoration: "underline" }}>SALARY PAYMENT LIST</div>
+          <div style={{ fontSize: 12, marginTop: 2 }}>បញ្ជីបើកប្រាក់បៀវត្ស — {monthLabel(month)}</div>
+        </div>
+
+        <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #000", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: "#f2f2f2" }}>
+              <th style={{ border: "1px solid #000", padding: "7px 5px", width: 38 }}>No</th>
+              <th style={{ border: "1px solid #000", padding: "7px 8px", textAlign: "left" }}>Staff name</th>
+              <th style={{ border: "1px solid #000", padding: "7px 8px", width: 150 }}>ABA account</th>
+              <th style={{ border: "1px solid #000", padding: "7px 8px", width: 110 }}>Amount (USD)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id}>
+                <td style={{ border: "1px solid #000", padding: "7px 5px", textAlign: "center" }}>{i + 1}</td>
+                <td style={{ border: "1px solid #000", padding: "7px 8px" }}>
+                  {r.staff_name || r.staff_name_kh}
+                  {r.staff_name_kh && r.staff_name ? <span style={{ color: "#555" }}> · {r.staff_name_kh}</span> : null}
+                </td>
+                <td style={{ border: "1px solid #000", padding: "7px 8px", textAlign: "center", fontFamily: "monospace" }}>{r.aba_number || "—"}</td>
+                <td style={{ border: "1px solid #000", padding: "7px 8px", textAlign: "right", fontWeight: 600 }}>{money(netOf(r))}</td>
+              </tr>
+            ))}
+            <tr style={{ background: "#f2f2f2", fontWeight: 700 }}>
+              <td style={{ border: "1px solid #000", padding: "8px 5px" }} colSpan={3}>សរុប / TOTAL — {rows.length} staff</td>
+              <td style={{ border: "1px solid #000", padding: "8px 8px", textAlign: "right" }}>{money(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 46 }}>
+          <div style={{ width: "40%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ height: 90 }} />
+            <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>រៀបចំដោយ / Prepared by</div>
+          </div>
+          <div style={{ width: "40%", textAlign: "center", fontSize: 12 }}>
+            <div style={{ height: 90 }} />
+            <div style={{ borderTop: "1px solid #000", paddingTop: 5 }}>អនុម័តដោយ / Approved by</div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 function PayslipPrintView({ slips, month, onClose }) {
   return createPortal(
