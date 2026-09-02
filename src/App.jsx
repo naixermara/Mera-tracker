@@ -1637,6 +1637,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
           packageVideos: Number(inserted.package_videos || 0),
           notes: inserted.notes || "",
           videos: [],
+          payments: [],
         },
       ]);
       setShowNewKol(false);
@@ -1884,7 +1885,9 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
 
   const enrichedKols = useMemo(() => {
     if (!kols) return [];
-    return kols.map((k) => {
+    return kols.map((kRaw) => {
+      // Defensive: a row missing videos/payments must degrade to empty, never crash the page.
+      const k = { ...kRaw, videos: kRaw.videos || [], payments: kRaw.payments || [] };
       const videosUsed = k.videos.length;
       const videosLeft = Math.max(0, k.packageVideos - videosUsed);
       const extraVideoSpend = k.videos.reduce((a, v) => a + v.videoCost, 0);
@@ -2105,7 +2108,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                     </div>
                   )}
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 10, color: C.textFaint }}>This month</div>
+                    <div style={{ fontSize: 10, color: C.textFaint }}>Cost this month</div>
                     <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: C.gold }}>${k.monthSpend.toFixed(2)}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
@@ -2523,6 +2526,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
           creditDays: Number(inserted.credit_days || 30),
           notes: inserted.notes || "",
           invoices: [],
+          payments: [],
         },
       ]);
       setShowNewStore(false);
@@ -2787,7 +2791,8 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
   const enrichedStores = useMemo(() => {
     if (!stores) return [];
     const today = new Date().toISOString().slice(0, 10);
-    return stores.map((s) => {
+    return stores.map((sRaw) => {
+      const s = { ...sRaw, invoices: sRaw.invoices || [], payments: sRaw.payments || [] };
       const monthInvoices = s.invoices.filter((inv) => monthKey(inv.invoiceDate) === selectedMonth);
       const monthBilledFromInvoices = monthInvoices.reduce((a, inv) => a + inv.amount, 0);
       const monthCollectedFromInvoices = monthInvoices.reduce((a, inv) => a + inv.paid, 0);
@@ -4271,7 +4276,8 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
 
   const enrichedStores = useMemo(() => {
     if (!stores) return [];
-    return stores.map((s) => {
+    return stores.map((sRaw) => {
+      const s = { ...sRaw, reports: sRaw.reports || [] };
       const monthReports = s.reports.filter((r) => monthKey(r.reportDate) === selectedMonth);
       const monthBilled = monthReports.reduce((a, r) => a + r.amount, 0);
       const monthCollected = monthReports.reduce((a, r) => a + r.paid, 0);
