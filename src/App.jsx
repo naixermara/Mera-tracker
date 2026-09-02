@@ -1566,7 +1566,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
   const [showNewKol, setShowNewKol] = useState(false);
   const [newKolForm, setNewKolForm] = useState({ name: "", packageCost: "", packageVideos: "", notes: "" });
   const [showLogVideo, setShowLogVideo] = useState(null);
-  const [videoForm, setVideoForm] = useState({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" });
+  const [videoForm, setVideoForm] = useState({ postedDate: new Date().toISOString().slice(0, 10), count: "1", videoCost: "", notes: "" });
   const [showHistory, setShowHistory] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
   // Ad boosting (Facebook / TikTok / …) — one total per platform per month.
@@ -1649,27 +1649,38 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
   }
 
   async function logVideo(kolId) {
+    // Several videos often go up on the same day, so one save can record a batch.
+    // Each one is still its own row, so the package count and history stay accurate.
+    const howMany = Math.min(50, Math.max(1, parseInt(videoForm.count, 10) || 1));
     try {
-      const [inserted] = await sbFetch("kol_videos", {
+      const one = {
+        kol_id: kolId,
+        posted_date: videoForm.postedDate,
+        video_cost: parseFloat(videoForm.videoCost) || 0,
+        notes: videoForm.notes,
+        created_by: authUser?.email || "unknown",
+      };
+      const insertedRows = await sbFetch("kol_videos", {
         method: "POST",
-        body: JSON.stringify({
-          kol_id: kolId,
-          posted_date: videoForm.postedDate,
-          video_cost: parseFloat(videoForm.videoCost) || 0,
-          notes: videoForm.notes,
-          created_by: authUser?.email || "unknown",
-        }),
+        body: JSON.stringify(Array.from({ length: howMany }, () => ({ ...one }))),
       });
+      const added = (insertedRows || []).map((r) => ({
+        id: r.id,
+        postedDate: r.posted_date,
+        videoCost: Number(r.video_cost || 0),
+        notes: r.notes || "",
+      }));
       setKols((prev) =>
-        prev.map((k) =>
-          k.id === kolId
-            ? { ...k, videos: [...k.videos, { id: inserted.id, postedDate: inserted.posted_date, videoCost: Number(inserted.video_cost || 0), notes: inserted.notes || "" }] }
-            : k
-        )
+        prev.map((k) => (k.id === kolId ? { ...k, videos: [...k.videos, ...added] } : k))
       );
       setShowLogVideo(null);
-      setVideoForm({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" });
+      setVideoForm({ postedDate: new Date().toISOString().slice(0, 10), count: "1", videoCost: "", notes: "" });
       setSaveError(false);
+      logActivity?.(
+        "Logged KOL video",
+        (kols || []).find((k) => k.id === kolId)?.name,
+        `${howMany} video${howMany === 1 ? "" : "s"} on ${videoForm.postedDate}`
+      );
     } catch (e) {
       setSaveError(true);
     }
@@ -2273,7 +2284,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
 
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setShowLogVideo(k.id); setVideoForm({ postedDate: new Date().toISOString().slice(0, 10), videoCost: "", notes: "" }); }}
+                      onClick={(e) => { e.stopPropagation(); setShowLogVideo(k.id); setVideoForm({ postedDate: new Date().toISOString().slice(0, 10), count: "1", videoCost: "", notes: "" }); }}
                       style={{ flex: 1, background: C.gold, border: "none", borderRadius: 8, padding: "9px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
                     >
                       + Log posted video
@@ -2288,13 +2299,17 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
 
                   {showLogVideo === k.id && (
                     <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, marginBottom: 12 }} onClick={(e) => e.stopPropagation()}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr 1fr", gap: 6, marginBottom: 8 }}>
                         <div>
                           <label style={{ fontSize: 9, color: C.textFaint }}>Posted date</label>
                           <input type="date" value={videoForm.postedDate} onChange={(e) => setVideoForm({ ...videoForm, postedDate: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} />
                         </div>
                         <div>
-                          <label style={{ fontSize: 9, color: C.textFaint }}>Extra cost $ (if any)</label>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>How many videos</label>
+                          <input type="number" min="1" max="50" step="1" value={videoForm.count} onChange={(e) => setVideoForm({ ...videoForm, count: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="1" />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: C.textFaint }}>Extra cost $ each</label>
                           <input type="number" step="0.01" value={videoForm.videoCost} onChange={(e) => setVideoForm({ ...videoForm, videoCost: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="0.00" />
                         </div>
                       </div>
@@ -2303,7 +2318,9 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                         <input type="text" value={videoForm.notes} onChange={(e) => setVideoForm({ ...videoForm, notes: e.target.value })} style={{ ...miniInputStyle, width: "100%" }} placeholder="e.g. link, product featured" />
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => logVideo(k.id)} style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Save</button>
+                        <button onClick={() => logVideo(k.id)} style={{ flex: 1, background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>
+                          {(parseInt(videoForm.count, 10) || 1) > 1 ? `Save ${parseInt(videoForm.count, 10)} videos` : "Save"}
+                        </button>
                         <button onClick={() => setShowLogVideo(null)} style={{ flex: 1, background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "7px 0", fontSize: 12, color: C.textDim, cursor: "pointer" }}>Cancel</button>
                       </div>
                     </div>
