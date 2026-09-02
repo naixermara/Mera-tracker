@@ -1653,6 +1653,18 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
     // Several videos often go up on the same day, so one save can record a batch.
     // Each one is still its own row, so the package count and history stay accurate.
     const howMany = Math.min(50, Math.max(1, parseInt(videoForm.count, 10) || 1));
+    // Guard against quietly overrunning the package (this is how a 10-video
+    // package silently became 12/10).
+    const kol = (kols || []).find((k) => k.id === kolId);
+    if (kol && kol.packageVideos > 0) {
+      const after = kol.videos.length + howMany;
+      if (after > kol.packageVideos) {
+        const left = Math.max(0, kol.packageVideos - kol.videos.length);
+        if (!window.confirm(
+          `${kol.name} has ${left} video${left === 1 ? "" : "s"} left on a ${kol.packageVideos}-video package.\n\nLogging ${howMany} more puts them at ${after}/${kol.packageVideos}. Log anyway?`
+        )) return;
+      }
+    }
     try {
       const one = {
         kol_id: kolId,
@@ -1684,6 +1696,24 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
       );
     } catch (e) {
       setSaveError(true);
+    }
+  }
+
+  async function deleteKol(kolId) {
+    try {
+      await sbFetch(`kol_videos?kol_id=eq.${kolId}`, { method: "DELETE" });
+      await sbFetch(`kol_payments?kol_id=eq.${kolId}`, { method: "DELETE" });
+      await sbFetch(`kols?id=eq.${kolId}`, { method: "DELETE" });
+      const removed = (kols || []).find((k) => k.id === kolId);
+      setKols((prev) => (prev || []).filter((k) => k.id !== kolId));
+      setExpanded(null);
+      setEditingKol(null);
+      setSaveError(false);
+      logActivity?.("Deleted KOL", removed?.name, `${removed?.videos.length || 0} videos, ${removed?.payments.length || 0} payments removed`);
+      return true;
+    } catch (e) {
+      setSaveError(true);
+      return false;
     }
   }
 
@@ -2177,6 +2207,19 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                         style={{ width: "100%", background: C.gold, border: "none", borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}
                       >
                         Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const n = k.videos.length, m = k.payments.length;
+                          if (!window.confirm(
+                            `Delete "${k.name}" for good?\n\nThis also removes ${n} video${n === 1 ? "" : "s"} and ${m} payment${m === 1 ? "" : "s"} logged against them. It cannot be undone.`
+                          )) return;
+                          deleteKol(k.id);
+                        }}
+                        style={{ width: "100%", background: "none", border: `1px solid ${C.rose}55`, borderRadius: 6, padding: "7px 0", fontSize: 12, fontWeight: 700, color: C.rose, cursor: "pointer", marginTop: 6 }}
+                      >
+                        Delete this KOL
                       </button>
                     </div>
                   )}
