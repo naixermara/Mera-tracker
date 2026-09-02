@@ -1579,6 +1579,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
   const [paymentForm, setPaymentForm] = useState({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
   const [showPayHistory, setShowPayHistory] = useState(null);
   const [showPaidBreakdown, setShowPaidBreakdown] = useState(false);
+  const [showSpendBreakdown, setShowSpendBreakdown] = useState(false);
   const [editingKol, setEditingKol] = useState(null);
   const [editKolForm, setEditKolForm] = useState(null);
   const [editingVideoId, setEditingVideoId] = useState(null);
@@ -1928,13 +1929,16 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
       const monthVideos = k.videos.filter((v) => monthKey(v.postedDate) === selectedMonth);
       const monthSpend = monthVideos.reduce((a, v) => a + perVideoPackageCost + v.videoCost, 0);
       const totalPaid = k.payments.reduce((a, p) => a + p.amount, 0);
+      const monthPaid = k.payments
+        .filter((p) => monthKey(p.paymentDate) === selectedMonth)
+        .reduce((a, p) => a + p.amount, 0);
       const owed = Math.max(0, committedSpend - totalPaid);
       // Complete = every package video posted AND fully paid. Once complete, the KOL "belongs"
       // to whichever month their last video was posted in, so it can still be found under that month.
       const isComplete = k.packageVideos > 0 && videosLeft === 0 && owed === 0;
       const lastVideoDate = k.videos.length ? [...k.videos].map((v) => v.postedDate).sort().slice(-1)[0] : null;
       const completionMonth = lastVideoDate ? monthKey(lastVideoDate) : null;
-      return { ...k, videosUsed, videosLeft, committedSpend, perVideoPackageCost, monthVideos, monthSpend, totalPaid, owed, isComplete, completionMonth };
+      return { ...k, videosUsed, videosLeft, committedSpend, perVideoPackageCost, monthVideos, monthSpend, totalPaid, monthPaid, owed, isComplete, completionMonth };
     });
   }, [kols, selectedMonth]);
 
@@ -1955,6 +1959,12 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
     const activeKols = visibleKols.length;
     return { monthSpend, videosLeft, totalPaid, totalOwed, activeKols };
   }, [visibleKols, enrichedKols]);
+
+  const spendBreakdown = useMemo(() => {
+    return enrichedKols
+      .filter((k) => k.monthSpend > 0 || k.monthPaid > 0)
+      .sort((a, b) => b.monthSpend - a.monthSpend);
+  }, [enrichedKols]);
 
   const paidBreakdown = useMemo(() => {
     return enrichedKols
@@ -2003,11 +2013,15 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 24 }}>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+        <button
+          type="button"
+          onClick={() => setShowSpendBreakdown(!showSpendBreakdown)}
+          style={{ textAlign: "left", background: C.surface, border: `1px solid ${showSpendBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
+        >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>KOL spend — {monthLabel(selectedMonth)}</div>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthSpend.toFixed(2)}</div>
-          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>with ads: ${(totals.monthSpend + adTotal).toFixed(2)}</div>
-        </div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>with ads: ${(totals.monthSpend + adTotal).toFixed(2)} · tap to see by KOL</div>
+        </button>
         <button
           type="button"
           onClick={() => setShowAds(!showAds)}
@@ -2091,6 +2105,37 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {showSpendBreakdown && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
+            {monthLabel(selectedMonth)} — by KOL
+          </div>
+          <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 10 }}>
+            What each KOL cost this month, and what you actually paid them this month.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {spendBreakdown.map((k) => (
+              <div key={k.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, borderTop: `1px solid ${C.border}`, padding: "9px 4px" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: C.text }}>{k.name}</div>
+                  <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 2 }}>
+                    {k.monthVideos.length} video{k.monthVideos.length === 1 ? "" : "s"} this month
+                    {k.owed > 0 ? ` · still owed $${k.owed.toFixed(2)}` : " · fully paid"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold }}>${k.monthSpend.toFixed(2)}</div>
+                  <div style={{ fontSize: 10.5, color: k.monthPaid > 0 ? C.emerald : C.textFaint, marginTop: 2 }}>
+                    {k.monthPaid > 0 ? `paid $${k.monthPaid.toFixed(2)}` : "no payment yet"}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {spendBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing logged for this month.</div>}
+          </div>
         </div>
       )}
 
