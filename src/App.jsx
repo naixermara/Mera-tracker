@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Wallet, Calendar, ClipboardList, Sparkles, Trash2, LogOut } from "lucide-react";
+import { Plus, X, Search, ChevronDown, ChevronRight, AlertCircle, Package, Wallet, Calendar, ClipboardList, Sparkles, Trash2, LogOut, Download } from "lucide-react";
 
 const SUPABASE_URL = "https://idkjsxrqaklyhidptaon.supabase.co";
 const SUPABASE_KEY = "sb_publishable_Y-yZsch-GC8QNXYY8ja-dA_MaBE4El0";
@@ -152,6 +152,169 @@ const C = {
   roseBg: "#2A1917",
 };
 
+// ============================================================================
+// BACKUP  —  download every table, so the data exists somewhere other than
+// Supabase. JSON keeps full fidelity (restorable); the .xls is one sheet per
+// table for reading in Excel or Google Sheets. Both are built in the browser
+// with no extra libraries, so nothing else has to be installed.
+// ============================================================================
+
+const BACKUP_TABLES = [
+  "stores", "visits", "salespeople",
+  "kols", "kol_videos", "kol_payments", "ad_spend",
+  "credit_stores", "credit_invoices", "credit_payments",
+  "bigco_stores", "bigco_reports",
+  "delivery_notes", "sales_invoices",
+  "staff", "payroll_runs", "payslips",
+  "activity_log",
+];
+
+function xmlEscape(v) {
+  if (v === null || v === undefined) return "";
+  return String(v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;")
+    // strip control characters Excel refuses to open
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+}
+
+function downloadBlob(filename, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// SpreadsheetML 2003 — plain XML, opens in Excel and Google Sheets, and unlike
+// CSV it holds every table in a single file with one tab each.
+function buildWorkbook(data) {
+  const sheets = Object.keys(data).map((name) => {
+    const rows = data[name] || [];
+    const cols = rows.length ? Object.keys(rows[0]) : ["(empty)"];
+    const header = cols.map((c) => `<Cell><Data ss:Type="String">${xmlEscape(c)}</Data></Cell>`).join("");
+    const body = rows.map((r) => {
+      const cells = cols.map((c) => {
+        const v = r[c];
+        const isNum = typeof v === "number" && isFinite(v);
+        const text = v && typeof v === "object" ? JSON.stringify(v) : v;
+        return `<Cell><Data ss:Type="${isNum ? "Number" : "String"}">${xmlEscape(text)}</Data></Cell>`;
+      }).join("");
+      return `<Row>${cells}</Row>`;
+    }).join("");
+    // Excel sheet names: 31 chars max, and none of : \ / ? * [ ]
+    const safe = name.replace(/[:\\\/?*\[\]]/g, "_").slice(0, 31);
+    return `<Worksheet ss:Name="${xmlEscape(safe)}"><Table><Row>${header}</Row>${body}</Table></Worksheet>`;
+  }).join("");
+
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+${sheets}
+</Workbook>`;
+}
+
+function BackupModal({ C, sbFetch, authUser, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState({});
+  const [failed, setFailed] = useState([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const out = {};
+      const bad = [];
+      // Sequential on purpose — a burst of parallel requests can trip Supabase
+      // rate limits, and a backup is worth waiting a few seconds for.
+      for (const t of BACKUP_TABLES) {
+        try {
+          out[t] = (await sbFetch(`${t}?select=*`)) || [];
+        } catch (e) {
+          bad.push(t);
+        }
+      }
+      setData(out);
+      setFailed(bad);
+      setLoading(false);
+      if (Object.keys(out).length === 0) setError("Couldn't read anything — check your connection and try again.");
+    })();
+  }, []);
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const totalRows = Object.values(data).reduce((a, r) => a + r.length, 0);
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(6,7,9,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 26, width: "100%", maxWidth: 520, maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>Backup</h2>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: C.textFaint, marginBottom: 16 }}>
+          A copy of everything, kept somewhere other than Supabase. Save it to Google Drive.
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: "center", color: C.textFaint, padding: "30px 0", fontSize: 13 }}>Reading your data…</div>
+        ) : (
+          <>
+            <div style={{ overflowY: "auto", flex: 1, marginBottom: 16, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+              {Object.keys(data).map((t) => (
+                <div key={t} style={{ display: "flex", justifyContent: "space-between", padding: "7px 12px", borderBottom: `1px solid ${C.border}`, fontSize: 12.5 }}>
+                  <span style={{ color: C.textDim }}>{t}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: data[t].length ? C.text : C.textFaint }}>{data[t].length}</span>
+                </div>
+              ))}
+            </div>
+
+            {failed.length > 0 && (
+              <div style={{ background: C.amberBg, color: C.amber, padding: "9px 12px", borderRadius: 8, fontSize: 11.5, marginBottom: 14, border: `1px solid ${C.amber}30` }}>
+                Couldn't read: {failed.join(", ")} — these tables may not exist yet. Everything else is included.
+              </div>
+            )}
+            {error && (
+              <div style={{ background: C.roseBg, color: C.rose, padding: "9px 12px", borderRadius: 8, fontSize: 12, marginBottom: 14 }}>{error}</div>
+            )}
+
+            <div style={{ fontSize: 11.5, color: C.textFaint, marginBottom: 12 }}>
+              {totalRows.toLocaleString()} rows across {Object.keys(data).length} tables.
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                onClick={() => downloadBlob(`mera-backup-${stamp}.xls`, buildWorkbook(data), "application/vnd.ms-excel")}
+                className="primarybtn"
+                style={{ flex: 1, minWidth: 180, background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 9, padding: "12px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+              >
+                Download Excel
+              </button>
+              <button
+                onClick={() => downloadBlob(
+                  `mera-backup-${stamp}.json`,
+                  JSON.stringify({ exported_at: new Date().toISOString(), exported_by: authUser?.email || "unknown", tables: data }, null, 2),
+                  "application/json"
+                )}
+                style={{ flex: 1, minWidth: 180, background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "12px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+              >
+                Download JSON
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: C.textFaint, marginTop: 12, lineHeight: 1.5 }}>
+              <b>Excel</b> — one tab per table, for reading and printing.<br />
+              <b>JSON</b> — the exact data, for restoring if something is ever lost. Keep both.
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 export default function MeraConsignmentApp() {
   useEffect(() => {
     if (document.getElementById("battambang-font-link")) return;
@@ -200,6 +363,7 @@ export default function MeraConsignmentApp() {
   const [showLog, setShowLog] = useState(false);
   const [showNewStore, setShowNewStore] = useState(false);
   const [showActivityLog, setShowActivityLog] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
   const [activityEntries, setActivityEntries] = useState(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [newStoreForm, setNewStoreForm] = useState({
@@ -878,6 +1042,15 @@ export default function MeraConsignmentApp() {
             {/* Kept together in one group so on a narrow phone they wrap as a
                 pair instead of the sign-out button dropping to its own line. */}
             <div style={{ display: "flex", gap: 10, marginLeft: "auto" }}>
+            {canSeePayroll && (
+              <button
+                onClick={() => setShowBackup(true)}
+                title="Backup / export"
+                style={{ background: "none", border: `1.5px solid ${C.border}`, color: C.textFaint, borderRadius: 10, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+              >
+                <Download size={16} />
+              </button>
+            )}
             {authUser?.email === OWNER_EMAIL && (
               <button
                 onClick={openActivityLog}
@@ -1515,6 +1688,8 @@ export default function MeraConsignmentApp() {
             )}
           </>
       ) : null}
+      {showBackup && <BackupModal C={C} sbFetch={sbFetch} authUser={authUser} onClose={() => setShowBackup(false)} />}
+
       {/* Activity log sits at the top level of the app so the header button
           works on every page, not only Sales > Consignment. */}
       {showActivityLog && (
