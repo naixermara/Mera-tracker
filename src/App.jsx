@@ -6368,11 +6368,13 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
   const [showNewStore, setShowNewStore] = useState(false);
   const [editingStoreId, setEditingStoreId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [salespeople, setSalespeople] = useState([]);
 
   const emptyForm = {
     name: "", phone: "", email: "", address: "", vatTin: "",
     day: "1", firstSent: new Date().toISOString().slice(0, 10),
     creditDays: "30",
+    salesperson: "",
     notes: "",
   };
   const [form, setForm] = useState(emptyForm);
@@ -6380,14 +6382,16 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
   useEffect(() => {
     (async () => {
       try {
-        const [storeRows, creditRows, bigcoRows] = await Promise.all([
+        const [storeRows, creditRows, bigcoRows, salespeopleRows] = await Promise.all([
           sbFetch("stores?select=*&order=name.asc"),
           sbFetch("credit_stores?select=*&order=name.asc"),
           sbFetch("bigco_stores?select=*&order=name.asc"),
+          sbFetch("salespeople?select=*&order=name.asc"),
         ]);
         setConsignmentStores(storeRows || []);
         setCreditStores(creditRows || []);
         setBigcoStores(bigcoRows || []);
+        setSalespeople((salespeopleRows || []).map((r) => r.name));
       } catch (e) {
         setSaveError(true);
       } finally {
@@ -6406,6 +6410,19 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
     if (type === "corporate") return setBigcoStores(updater);
     return setConsignmentStores(updater);
   }
+  // Adding a name here makes it available to every store type, not just this one.
+  async function addSalesperson(name) {
+    const trimmed = (name || "").trim();
+    if (!trimmed || salespeople.includes(trimmed)) return trimmed;
+    try {
+      await sbFetch("salespeople", { method: "POST", body: JSON.stringify({ name: trimmed }) });
+      setSalespeople((prev) => [...prev, trimmed].sort((a, b) => a.localeCompare(b)));
+    } catch (e) {
+      // the name still works on this store even if the shared list didn't save
+    }
+    return trimmed;
+  }
+
   function tableFor(type) {
     if (type === "credit") return "credit_stores";
     if (type === "corporate") return "bigco_stores";
@@ -6418,12 +6435,13 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
     try {
       const contactInfo = { phone: form.phone, email: form.email, address: form.address, vat_tin: form.vatTin };
       let body;
+      const sp = await addSalesperson(form.salesperson);
       if (activeType === "credit") {
-        body = { name: trimmed, credit_days: parseInt(form.creditDays, 10) || 30, notes: form.notes, ...contactInfo };
+        body = { name: trimmed, credit_days: parseInt(form.creditDays, 10) || 30, notes: form.notes, salesperson: sp || null, ...contactInfo };
       } else if (activeType === "corporate") {
-        body = { name: trimmed, notes: form.notes, ...contactInfo };
+        body = { name: trimmed, notes: form.notes, salesperson: sp || null, ...contactInfo };
       } else {
-        body = { name: trimmed, day: parseInt(form.day, 10) || 1, first_sent: form.firstSent, pl_initial: 0, night_initial: 0, day_initial: 0, ...contactInfo };
+        body = { name: trimmed, day: parseInt(form.day, 10) || 1, first_sent: form.firstSent, pl_initial: 0, night_initial: 0, day_initial: 0, salesperson: sp || null, ...contactInfo };
       }
       const [inserted] = await sbFetch(tableFor(activeType), { method: "POST", body: JSON.stringify(body) });
       setStoresFor(activeType, (prev) => [...prev, inserted].sort((a, b) => a.name.localeCompare(b.name)));
@@ -6438,15 +6456,24 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
 
   async function updateStore(storeId, changes) {
     try {
+      const before = storesFor(activeType).find((x) => x.id === storeId);
+      const sp = await addSalesperson(changes.salesperson);
       const body = activeType === "credit"
-        ? { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, credit_days: parseInt(changes.creditDays, 10) || 30, notes: changes.notes }
+        ? { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, credit_days: parseInt(changes.creditDays, 10) || 30, salesperson: sp || null, notes: changes.notes }
         : activeType === "corporate"
-        ? { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, notes: changes.notes }
-        : { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, day: parseInt(changes.day, 10) || 1, notes: changes.notes };
+        ? { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, salesperson: sp || null, notes: changes.notes }
+        : { name: changes.name, phone: changes.phone, email: changes.email, address: changes.address, vat_tin: changes.vatTin, day: parseInt(changes.day, 10) || 1, salesperson: sp || null, notes: changes.notes };
       await sbFetch(`${tableFor(activeType)}?id=eq.${storeId}`, { method: "PATCH", body: JSON.stringify(body) });
       setStoresFor(activeType, (prev) => prev.map((s) => (s.id === storeId ? { ...s, ...body, vat_tin: changes.vatTin } : s)));
       setEditingStoreId(null);
       setSaveError(false);
+      if ((before?.salesperson || "") !== (sp || "")) {
+        logActivity?.(
+          "Reassigned salesperson",
+          changes.name,
+          `${before?.salesperson || "(unassigned)"} → ${sp || "(unassigned)"}`
+        );
+      }
     } catch (e) {
       setSaveError(true);
     }
@@ -6539,6 +6566,11 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
                     {activeType === "credit" && <span> · Net {s.credit_days} days</span>}
                     {activeType === "consignment" && <span> · Day {s.day}</span>}
                   </div>
+                  <div style={{ fontSize: 11, marginTop: 3 }}>
+                    {s.salesperson
+                      ? <span style={{ color: C.gold }}>Salesperson: {s.salesperson}</span>
+                      : <span style={{ color: C.textFaint }}>No salesperson assigned</span>}
+                  </div>
                   {s.address && <div style={{ fontSize: 11, color: C.textFaint, marginTop: 2 }}>{s.address}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
@@ -6549,6 +6581,7 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
                         name: s.name, phone: s.phone || "", email: s.email || "", address: s.address || "", vatTin: s.vat_tin || "",
                         day: String(s.day || 1), firstSent: s.first_sent || new Date().toISOString().slice(0, 10),
                         creditDays: String(s.credit_days || 30),
+                        salesperson: s.salesperson || "",
                         notes: s.notes || "",
                       });
                     }}
@@ -6567,7 +6600,7 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
 
               {editingStoreId === s.id && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                  <StoreFormFields form={form} setForm={setForm} activeType={activeType} C={C} />
+                  <StoreFormFields form={form} setForm={setForm} activeType={activeType} C={C} salespeople={salespeople} />
                   <button
                     onClick={() => updateStore(s.id, form)}
                     style={{ width: "100%", background: C.gold, border: "none", borderRadius: 8, padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer", marginTop: 4 }}
@@ -6588,7 +6621,7 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
               <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 22, margin: 0, fontWeight: 600 }}>New {activeType === "credit" ? "Credit Term" : activeType === "corporate" ? "Corporate Account" : "Consignment"} store</h2>
               <button onClick={() => setShowNewStore(false)} style={{ background: "none", border: "none", color: C.textDim }}><X size={20} /></button>
             </div>
-            <StoreFormFields form={form} setForm={setForm} activeType={activeType} C={C} showName />
+            <StoreFormFields form={form} setForm={setForm} activeType={activeType} C={C} salespeople={salespeople} showName />
             <button
               onClick={createStore}
               disabled={!form.name.trim()}
@@ -6609,7 +6642,7 @@ function StoresPage({ authUser, C, sbFetch, logActivity }) {
   );
 }
 
-function StoreFormFields({ form, setForm, activeType, C, showName }) {
+function StoreFormFields({ form, setForm, activeType, C, showName, salespeople = [] }) {
   return (
     <>
       {showName && (
@@ -6659,6 +6692,34 @@ function StoreFormFields({ form, setForm, activeType, C, showName }) {
           <input type="number" value={form.creditDays} onChange={(e) => setForm({ ...form, creditDays: e.target.value })} style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
         </div>
       )}
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Responsible salesperson</label>
+        <select
+          value={salespeople.includes(form.salesperson) || !form.salesperson ? (form.salesperson || "") : "__new__"}
+          onChange={(e) => setForm({ ...form, salesperson: e.target.value === "__new__" ? " " : e.target.value })}
+          style={{ width: "100%", border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }}
+        >
+          <option value="">— none —</option>
+          {salespeople.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+          <option value="__new__">+ Someone not on the list…</option>
+        </select>
+        {form.salesperson !== "" && !salespeople.includes(form.salesperson) && (
+          <input
+            type="text"
+            autoFocus
+            value={form.salesperson.trim()}
+            onChange={(e) => setForm({ ...form, salesperson: e.target.value || " " })}
+            placeholder="Type their name"
+            style={{ width: "100%", marginTop: 6, border: `1.5px solid ${C.gold}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }}
+          />
+        )}
+        <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 5 }}>
+          Who looks after this store. Change it here any time to hand the store to someone else.
+        </div>
+      </div>
 
       <div style={{ marginBottom: 16 }}>
         <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.textDim, marginBottom: 6, textTransform: "uppercase" }}>Notes (optional)</label>
