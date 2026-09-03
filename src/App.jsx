@@ -7424,10 +7424,18 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   const [printBank, setPrintBank] = useState(null);
   const [printSlips, setPrintSlips] = useState(null);
   const [printSheet, setPrintSheet] = useState(false);
+  // Annual leave: one figure per staff member per month, mirroring the leave
+  // sheet she already keeps. Half days are normal, so values step by 0.5.
+  const [leaveYear, setLeaveYear] = useState(new Date().getFullYear());
+  const [leaveRows, setLeaveRows] = useState([]);
+  const [leaveDirty, setLeaveDirty] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
+  const [leaveMissing, setLeaveMissing] = useState(false);
 
   const emptyStaff = {
     staff_no: "", name: "", name_kh: "", gender: "", position: "", pay_type: "salary",
-    monthly_salary: "", aba_number: "", phone: "", start_date: "", notes: "",
+    monthly_salary: "", aba_number: "", phone: "", start_date: "", end_date: "",
+    annual_leave_days: "15", notes: "",
   };
   const [showNewStaff, setShowNewStaff] = useState(false);
   const [staffForm, setStaffForm] = useState(emptyStaff);
@@ -7485,6 +7493,61 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
   const outstanding = unpaidRows.reduce((a, r) => a + netOf(r), 0);
 
   // ---------------- staff ----------------
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await sbFetch(`leave_days?year=eq.${leaveYear}&select=*`);
+        setLeaveRows(rows || []);
+        setLeaveMissing(false);
+      } catch (e) {
+        setLeaveMissing(true);
+      }
+      setLeaveDirty(false);
+    })();
+  }, [leaveYear]);
+
+  function leaveOf(staffId, month) {
+    const r = leaveRows.find((x) => x.staff_id === staffId && x.month === month);
+    return r ? r.days : "";
+  }
+
+  function editLeave(staffId, month, value) {
+    setLeaveRows((prev) => {
+      const idx = prev.findIndex((x) => x.staff_id === staffId && x.month === month);
+      if (idx === -1) return [...prev, { staff_id: staffId, year: leaveYear, month, days: value }];
+      const next = [...prev];
+      next[idx] = { ...next[idx], days: value };
+      return next;
+    });
+    setLeaveDirty(true);
+  }
+
+  async function saveLeave() {
+    setLeaveBusy(true);
+    try {
+      for (const r of leaveRows) {
+        const days = pnum(r.days);
+        if (r.id) {
+          await sbFetch(`leave_days?id=eq.${r.id}`, { method: "PATCH", body: JSON.stringify({ days }) });
+        } else if (days > 0) {
+          const [ins] = await sbFetch("leave_days", {
+            method: "POST",
+            body: JSON.stringify({ staff_id: r.staff_id, year: r.year, month: r.month, days }),
+          });
+          if (ins) r.id = ins.id;
+        }
+      }
+      setLeaveRows((prev) => [...prev]);
+      setLeaveDirty(false);
+      setError("");
+      logActivity?.("Updated annual leave", String(leaveYear), "");
+    } catch (e) {
+      setError("Couldn't save leave — did you create the leave_days table?");
+    } finally {
+      setLeaveBusy(false);
+    }
+  }
+
   async function saveStaff() {
     const name = staffForm.name.trim() || staffForm.name_kh.trim();
     if (!name) return;
@@ -7499,6 +7562,8 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
       aba_number: staffForm.aba_number || null,
       phone: staffForm.phone || null,
       start_date: staffForm.start_date || null,
+      end_date: staffForm.end_date || null,
+      annual_leave_days: pnum(staffForm.annual_leave_days) || 15,
       notes: staffForm.notes || null,
     };
     try {
@@ -7704,7 +7769,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
       {printBank && <BankTransferPrintView rows={printBank} month={month} onClose={() => setPrintBank(null)} />}
 
       <div style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 18 }}>
-        {[{ key: "run", label: "Monthly payroll" }, { key: "staff", label: "Staff" }].map((t) => (
+        {[{ key: "run", label: "Monthly payroll" }, { key: "leave", label: "Annual leave" }, { key: "staff", label: "Staff" }].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{ background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginRight: 14, color: tab === t.key ? C.gold : C.textFaint, borderBottom: `2px solid ${tab === t.key ? C.gold : "transparent"}` }}>
             {t.label}
           </button>
@@ -7716,6 +7781,93 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
       )}
 
       {/* ------------------------------- STAFF ------------------------------- */}
+      {tab === "leave" && (() => {
+        const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const people = staff.filter((s) => s.active || leaveRows.some((r) => r.staff_id === s.id));
+        const usedOf = (id) => leaveRows.filter((r) => r.staff_id === id).reduce((a, r) => a + pnum(r.days), 0);
+        const entOf = (s) => (s.annual_leave_days == null ? 15 : pnum(s.annual_leave_days));
+        const years = [];
+        for (let y = new Date().getFullYear() + 1; y >= 2023; y--) years.push(y);
+        return (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Annual leave — {leaveYear}</div>
+                <div style={{ fontSize: 11.5, color: C.textFaint, marginTop: 3 }}>
+                  Days taken each month. Half days are fine (0.5). Set each person's yearly allowance on the Staff tab.
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select value={leaveYear} onChange={(e) => setLeaveYear(Number(e.target.value))} style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>
+                  {years.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+                <button onClick={saveLeave} disabled={leaveBusy || !leaveDirty} className="primarybtn" style={{ background: leaveDirty ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.surfaceHover, color: leaveDirty ? "#1A1508" : C.textFaint, border: leaveDirty ? "none" : `1px solid ${C.border}`, borderRadius: 9, padding: "10px 18px", fontSize: 12.5, fontWeight: 700, cursor: leaveDirty ? "pointer" : "default" }}>
+                  {leaveBusy ? "Saving…" : leaveDirty ? "Save changes" : "Saved"}
+                </button>
+              </div>
+            </div>
+
+            {leaveMissing && (
+              <div style={{ background: C.roseBg, color: C.rose, padding: "12px 14px", borderRadius: 8, fontSize: 12.5, marginBottom: 14, border: `1px solid ${C.rose}30` }}>
+                The <b>leave_days</b> table doesn't exist yet — run the annual leave SQL in Supabase, then reload.
+              </div>
+            )}
+
+            <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 980 }}>
+                <thead>
+                  <tr style={{ color: C.textFaint, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    <th style={{ textAlign: "left", padding: "11px 12px", fontWeight: 700, position: "sticky", left: 0, background: C.surface }}>Staff</th>
+                    <th style={{ ...thStyle, padding: "11px 8px" }}>Allow</th>
+                    <th style={{ ...thStyle, padding: "11px 8px" }}>Used</th>
+                    <th style={{ ...thStyle, padding: "11px 8px" }}>Left</th>
+                    {MONTHS.map((m) => <th key={m} style={{ ...thStyle, padding: "11px 4px", width: 54 }}>{m}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {people.map((s) => {
+                    const used = usedOf(s.id), ent = entOf(s), left = ent - used;
+                    return (
+                      <tr key={s.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "9px 12px", minWidth: 170, position: "sticky", left: 0, background: C.surface }}>
+                          <div style={{ fontWeight: 700 }}>{s.name_kh || s.name}</div>
+                          <div style={{ fontSize: 10.5, color: C.textFaint }}>
+                            {s.position || "—"}{s.start_date ? ` · since ${fmtDate(s.start_date)}` : ""}{s.end_date ? " · left" : ""}
+                          </div>
+                        </td>
+                        <td style={{ padding: "9px 8px", textAlign: "right", color: C.textDim }}>{ent}</td>
+                        <td style={{ padding: "9px 8px", textAlign: "right", color: C.gold, fontWeight: 700 }}>{used || 0}</td>
+                        <td style={{ padding: "9px 8px", textAlign: "right", fontWeight: 700, color: left < 0 ? C.rose : left <= 2 ? C.amber : C.emerald }}>{left}</td>
+                        {MONTHS.map((m, idx) => (
+                          <td key={m} style={{ padding: "6px 3px" }}>
+                            <input
+                              inputMode="decimal"
+                              value={leaveOf(s.id, idx + 1)}
+                              onChange={(e) => editLeave(s.id, idx + 1, e.target.value)}
+                              placeholder="–"
+                              style={{ ...cellInput, padding: "6px 4px", textAlign: "center", width: 48 }}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                  {people.length === 0 && (
+                    <tr><td colSpan={16} style={{ padding: "26px 12px", textAlign: "center", color: C.textFaint, fontSize: 13 }}>No staff yet — add them on the Staff tab.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {people.some((s) => entOf(s) - usedOf(s.id) < 0) && (
+              <div style={{ background: C.roseBg, color: C.rose, padding: "11px 14px", borderRadius: 9, fontSize: 12.5, marginTop: 14, border: `1px solid ${C.rose}30` }}>
+                Someone is over their allowance — anything past it is unpaid unless you decide otherwise.
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {tab === "staff" && (
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
@@ -7758,6 +7910,8 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                 <div><label style={labelStyle}>ABA number</label><input style={inputStyle} value={staffForm.aba_number} onChange={(e) => setStaffForm({ ...staffForm, aba_number: e.target.value })} /></div>
                 <div><label style={labelStyle}>Phone</label><input style={inputStyle} value={staffForm.phone} onChange={(e) => setStaffForm({ ...staffForm, phone: e.target.value })} /></div>
                 <div><label style={labelStyle}>Start date</label><input type="date" style={inputStyle} value={staffForm.start_date || ""} onChange={(e) => setStaffForm({ ...staffForm, start_date: e.target.value })} /></div>
+                <div><label style={labelStyle}>End date (if they left)</label><input type="date" style={inputStyle} value={staffForm.end_date || ""} onChange={(e) => setStaffForm({ ...staffForm, end_date: e.target.value })} /></div>
+                <div><label style={labelStyle}>Annual leave days / year</label><input style={inputStyle} inputMode="decimal" value={staffForm.annual_leave_days} onChange={(e) => setStaffForm({ ...staffForm, annual_leave_days: e.target.value })} placeholder="15" /></div>
                 <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Notes</label><input style={inputStyle} value={staffForm.notes} onChange={(e) => setStaffForm({ ...staffForm, notes: e.target.value })} /></div>
               </div>
               <button onClick={saveStaff} className="primarybtn" style={{ marginTop: 16, background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "11px 22px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
@@ -7784,7 +7938,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: C.goldBright }}>{money(s.monthly_salary)}<span style={{ fontSize: 11, color: C.textFaint, fontWeight: 400 }}>/mo</span></div>
-                    <button onClick={() => { setStaffForm({ staff_no: s.staff_no || "", name: s.name || "", name_kh: s.name_kh || "", gender: s.gender || "", position: s.position || "", pay_type: s.pay_type || "salary", monthly_salary: String(s.monthly_salary ?? ""), aba_number: s.aba_number || "", phone: s.phone || "", start_date: s.start_date || "", notes: s.notes || "" }); setEditingStaffId(s.id); setShowNewStaff(true); }} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}>Edit</button>
+                    <button onClick={() => { setStaffForm({ staff_no: s.staff_no || "", name: s.name || "", name_kh: s.name_kh || "", gender: s.gender || "", position: s.position || "", pay_type: s.pay_type || "salary", monthly_salary: String(s.monthly_salary ?? ""), aba_number: s.aba_number || "", phone: s.phone || "", start_date: s.start_date || "", end_date: s.end_date || "", annual_leave_days: String(s.annual_leave_days ?? 15), notes: s.notes || "" }); setEditingStaffId(s.id); setShowNewStaff(true); }} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}>Edit</button>
                     <button onClick={() => toggleActive(s)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "7px 12px", fontSize: 12, cursor: "pointer" }}>{s.active ? "Deactivate" : "Reactivate"}</button>
                     <button onClick={() => deleteStaff(s)} style={{ background: "none", border: "none", color: C.textFaint, cursor: "pointer" }}><Trash2 size={15} /></button>
                   </div>
