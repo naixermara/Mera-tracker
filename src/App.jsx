@@ -86,6 +86,9 @@ async function verifyToken(token) {
   return res.json();
 }
 
+// Money is shown with thousands separators everywhere: 11765.83 -> 11,765.83
+const MONEY2 = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+
 const PRODUCTS = [
   { key: "Panty Liner", label: "Panty Liner", initKey: "pl", priceKey: "plPrice" },
   { key: "Night", label: "Night (យប់)", initKey: "night", priceKey: "nightPrice" },
@@ -542,7 +545,7 @@ export default function MeraConsignmentApp() {
       ]);
       setSaveError(false);
       const summary = rows.map((r) => `${r.product}: sold ${r.sold}, returned ${r.returned}`).join("; ");
-      const paidNote = rows[rows.length - 1]?.paid > 0 ? ` · paid $${rows[rows.length - 1].paid.toFixed(2)}` : "";
+      const paidNote = rows[rows.length - 1]?.paid > 0 ? ` · paid $${rows[rows.length - 1].paid.toLocaleString("en-US", MONEY2)}` : "";
       logActivity("Logged visit", rows[0]?.store, summary + paidNote);
     } catch (e) {
       alert("Save failed: " + e.message);
@@ -563,7 +566,7 @@ export default function MeraConsignmentApp() {
       setVisits((prev) => (prev || []).filter((v) => v.id !== id));
       setSaveError(false);
       if (visitBeingDeleted) {
-        logActivity("Deleted visit", visitBeingDeleted.store, `${visitBeingDeleted.product}: sold ${visitBeingDeleted.sold}, returned ${visitBeingDeleted.returned}, paid $${visitBeingDeleted.paid.toFixed(2)} (dated ${visitBeingDeleted.date})`);
+        logActivity("Deleted visit", visitBeingDeleted.store, `${visitBeingDeleted.product}: sold ${visitBeingDeleted.sold}, returned ${visitBeingDeleted.returned}, paid $${visitBeingDeleted.paid.toLocaleString("en-US", MONEY2)} (dated ${visitBeingDeleted.date})`);
       }
     } catch (e) {
       alert("Delete failed with an error: " + e.message);
@@ -597,7 +600,7 @@ export default function MeraConsignmentApp() {
         logActivity(
           "Edited visit",
           before.store,
-          `${before.product} → sold ${before.sold}→${changes.sold}, returned ${before.returned}→${changes.returned}, paid $${before.paid.toFixed(2)}→$${changes.paid.toFixed(2)}`
+          `${before.product} → sold ${before.sold}→${changes.sold}, returned ${before.returned}→${changes.returned}, paid $${before.paid.toLocaleString("en-US", MONEY2)}→$${changes.paid.toLocaleString("en-US", MONEY2)}`
         );
       }
     } catch (e) {
@@ -660,7 +663,7 @@ export default function MeraConsignmentApp() {
         prev.map((s) => (s.id === storeId ? { ...s, ...prices } : s))
       );
       setSaveError(false);
-      logActivity("Updated prices", store?.name, `PL $${prices.plPrice.toFixed(2)}, Night $${prices.nightPrice.toFixed(2)}, Day $${prices.dayPrice.toFixed(2)}`);
+      logActivity("Updated prices", store?.name, `PL $${prices.plPrice.toLocaleString("en-US", MONEY2)}, Night $${prices.nightPrice.toLocaleString("en-US", MONEY2)}, Day $${prices.dayPrice.toLocaleString("en-US", MONEY2)}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -1256,14 +1259,14 @@ export default function MeraConsignmentApp() {
             icon={Package}
             label="Selling (ស្តុកកំពុងដាក់លក់)"
             value={stats.totalRemaining.toLocaleString()}
-            subtitle={stats.totalStockValue > 0 ? "≈ $" + stats.totalStockValue.toFixed(2) : undefined}
+            subtitle={stats.totalStockValue > 0 ? "≈ $" + stats.totalStockValue.toLocaleString("en-US", MONEY2) : undefined}
             onClick={remainingBreakdown.length ? () => setShowRemainingBreakdown(!showRemainingBreakdown) : undefined}
             active={showRemainingBreakdown}
           />
           <StatCard
             icon={Wallet}
             label={`Collected — ${monthLabel(selectedMonth)}`}
-            value={"$" + stats.totalCollected.toFixed(2)}
+            value={"$" + stats.totalCollected.toLocaleString("en-US", MONEY2)}
             onClick={monthlyBreakdown.length ? () => setShowBreakdown(!showBreakdown) : undefined}
             active={showBreakdown}
           />
@@ -1305,7 +1308,7 @@ export default function MeraConsignmentApp() {
                         {v.invoiceNumber && <span style={{ color: C.gold }}> · inv# {v.invoiceNumber}</span>}
                       </span>
                       <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald, flexShrink: 0 }}>
-                        ${v.paid.toFixed(2)}
+                        ${v.paid.toLocaleString("en-US", MONEY2)}
                       </span>
                     </button>
                   );
@@ -1384,7 +1387,7 @@ export default function MeraConsignmentApp() {
               <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 26, fontWeight: 600, color: C.gold }}>{salesSummary.totalUnits.toLocaleString()}</span>
               <span style={{ fontSize: 13, color: C.textDim }}>units sold</span>
               <span style={{ color: C.textFaint }}>·</span>
-              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: C.emerald }}>${salesSummary.totalPaid.toFixed(2)}</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: C.emerald }}>${salesSummary.totalPaid.toLocaleString("en-US", MONEY2)}</span>
               <span style={{ fontSize: 13, color: C.textDim }}>collected</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9 }}>
@@ -1819,7 +1822,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
       setShowNewKol(false);
       setNewKolForm({ name: "", packageCost: "", packageVideos: "", notes: "" });
       setSaveError(false);
-      logActivity?.("Added new KOL", inserted.name, `Package $${(parseFloat(newKolForm.packageCost) || 0).toFixed(2)}, ${parseInt(newKolForm.packageVideos, 10) || 0} videos`);
+      logActivity?.("Added new KOL", inserted.name, `Package $${(parseFloat(newKolForm.packageCost) || 0).toLocaleString("en-US", MONEY2)}, ${parseInt(newKolForm.packageVideos, 10) || 0} videos`);
     } catch (e) {
       setSaveError(true);
     }
@@ -1928,7 +1931,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
       setPaymentForm({ paymentDate: new Date().toISOString().slice(0, 10), amount: "", notes: "" });
       setSaveError(false);
       const kolName = kols.find((k) => k.id === kolId)?.name || "";
-      logActivity?.("Logged KOL payment", kolName, `$${(parseFloat(paymentForm.amount) || 0).toFixed(2)} on ${paymentForm.paymentDate}`);
+      logActivity?.("Logged KOL payment", kolName, `$${(parseFloat(paymentForm.amount) || 0).toLocaleString("en-US", MONEY2)} on ${paymentForm.paymentDate}`);
     } catch (e) {
       setSaveError(true);
     }
@@ -2081,7 +2084,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
       }
       setAdRows((prev) => [...prev.filter((r) => r.month !== selectedMonth), ...saved]);
       setSaveError(false);
-      logActivity?.("Updated ad boosting", monthLabel(selectedMonth), "$" + saved.reduce((a, r) => a + Number(r.amount || 0), 0).toFixed(2));
+      logActivity?.("Updated ad boosting", monthLabel(selectedMonth), "$" + saved.reduce((a, r) => a + Number(r.amount || 0), 0).toLocaleString("en-US", MONEY2));
     } catch (e) {
       setSaveError(true);
     } finally {
@@ -2194,8 +2197,8 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showSpendBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>KOL spend — {monthLabel(selectedMonth)}</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthSpend.toFixed(2)}</div>
-          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>with ads: ${(totals.monthSpend + adTotal).toFixed(2)} · tap to see by KOL</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthSpend.toLocaleString("en-US", MONEY2)}</div>
+          <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>with ads: ${(totals.monthSpend + adTotal).toLocaleString("en-US", MONEY2)} · tap to see by KOL</div>
         </button>
         <button
           type="button"
@@ -2203,7 +2206,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showAds ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Ads boosting</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${adTotal.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${adTotal.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>Facebook + TikTok · tap to edit</div>
         </button>
         <button
@@ -2212,12 +2215,12 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showPaidBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Paid (all-time)</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.totalPaid.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.totalPaid.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>across every KOL, any month · tap to see by KOL</div>
         </button>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.totalOwed > 0 ? C.rose : C.text }}>${totals.totalOwed.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.totalOwed > 0 ? C.rose : C.text }}>${totals.totalOwed.toLocaleString("en-US", MONEY2)}</div>
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Videos left</div>
@@ -2266,7 +2269,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                 <div style={{ fontSize: 13 }}>
                   <span style={{ color: C.textFaint }}>Month total: </span>
                   <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.goldBright }}>
-                    ${adDraft.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0).toFixed(2)}
+                    ${adDraft.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0).toLocaleString("en-US", MONEY2)}
                   </b>
                 </div>
                 <button
@@ -2298,13 +2301,13 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                   <div style={{ fontSize: 13, color: C.text }}>{k.name}</div>
                   <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 2 }}>
                     {k.monthVideos.length} video{k.monthVideos.length === 1 ? "" : "s"} this month
-                    {k.owed > 0 ? ` · still owed $${k.owed.toFixed(2)}` : " · fully paid"}
+                    {k.owed > 0 ? ` · still owed $${k.owed.toLocaleString("en-US", MONEY2)}` : " · fully paid"}
                   </div>
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold }}>${k.monthSpend.toFixed(2)}</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold }}>${k.monthSpend.toLocaleString("en-US", MONEY2)}</div>
                   <div style={{ fontSize: 10.5, color: k.monthPaid > 0 ? C.emerald : C.textFaint, marginTop: 2 }}>
-                    {k.monthPaid > 0 ? `paid $${k.monthPaid.toFixed(2)}` : "no payment yet"}
+                    {k.monthPaid > 0 ? `paid $${k.monthPaid.toLocaleString("en-US", MONEY2)}` : "no payment yet"}
                   </div>
                 </div>
               </div>
@@ -2323,7 +2326,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
             {paidBreakdown.map((k) => (
               <div key={k.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `1px solid ${C.border}`, padding: "9px 4px" }}>
                 <span style={{ fontSize: 13, color: C.text }}>{k.name}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${k.totalPaid.toFixed(2)}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${k.totalPaid.toLocaleString("en-US", MONEY2)}</span>
               </div>
             ))}
             {paidBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>No payments logged yet.</div>}
@@ -2359,11 +2362,11 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                   )}
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: C.textFaint }}>Cost this month</div>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: C.gold }}>${k.monthSpend.toFixed(2)}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: C.gold }}>${k.monthSpend.toLocaleString("en-US", MONEY2)}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: C.textFaint }}>Owed</div>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: k.owed > 0 ? C.rose : C.emerald }}>${k.owed.toFixed(2)}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: k.owed > 0 ? C.rose : C.emerald }}>${k.owed.toLocaleString("en-US", MONEY2)}</div>
                   </div>
                 </div>
               </div>
@@ -2374,9 +2377,9 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                     <div style={{ fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 }}>{k.notes}</div>
                   )}
                   <div style={{ display: "flex", gap: 16, fontSize: 12, marginBottom: 12, color: C.textDim, flexWrap: "wrap" }}>
-                    <span>Package: <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${k.packageCost.toFixed(2)}</b></span>
-                    <span>Paid: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${k.totalPaid.toFixed(2)}</b></span>
-                    <span>Owed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: k.owed > 0 ? C.rose : C.text }}>${k.owed.toFixed(2)}</b></span>
+                    <span>Package: <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${k.packageCost.toLocaleString("en-US", MONEY2)}</b></span>
+                    <span>Paid: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${k.totalPaid.toLocaleString("en-US", MONEY2)}</b></span>
+                    <span>Owed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: k.owed > 0 ? C.rose : C.text }}>${k.owed.toLocaleString("en-US", MONEY2)}</b></span>
                   </div>
 
                   <button
@@ -2531,7 +2534,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                             >
                               <div style={{ fontWeight: 600, color: C.text }}>
                                 {new Date(p.paymentDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-                                <span style={{ color: C.emerald }}> · ${p.amount.toFixed(2)}</span>
+                                <span style={{ color: C.emerald }}> · ${p.amount.toLocaleString("en-US", MONEY2)}</span>
                               </div>
                               {p.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{p.notes}</div>}
                             </div>
@@ -2641,7 +2644,7 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
                               }}
                             >
                               <div style={{ fontWeight: 600, color: C.text }}>{new Date(v.postedDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</div>
-                              {v.videoCost > 0 && <div style={{ color: C.emerald, marginTop: 2 }}>+${v.videoCost.toFixed(2)}</div>}
+                              {v.videoCost > 0 && <div style={{ color: C.emerald, marginTop: 2 }}>+${v.videoCost.toLocaleString("en-US", MONEY2)}</div>}
                               {v.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{v.notes}</div>}
                             </div>
                             <button
@@ -2843,7 +2846,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
       );
       setSaveError(false);
       const storeName = stores.find((s) => s.id === storeId)?.name || "";
-      logActivity?.("Logged Credit Term invoice", storeName, `$${(parseFloat(form.amount) || 0).toFixed(2)} billed on ${form.invoiceDate}`);
+      logActivity?.("Logged Credit Term invoice", storeName, `$${(parseFloat(form.amount) || 0).toLocaleString("en-US", MONEY2)} billed on ${form.invoiceDate}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -2884,7 +2887,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
       );
       setSaveError(false);
       const storeName = stores.find((s) => s.id === storeId)?.name || "";
-      logActivity?.("Logged Credit Term payment", storeName, `$${(parseFloat(form.amount) || 0).toFixed(2)} on ${form.paymentDate}`);
+      logActivity?.("Logged Credit Term payment", storeName, `$${(parseFloat(form.amount) || 0).toLocaleString("en-US", MONEY2)} on ${form.paymentDate}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -3226,7 +3229,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showBilledBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Billed — {monthLabel(selectedMonth)}</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthBilled.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthBilled.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
         </button>
         <button
@@ -3235,7 +3238,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showCollectedBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Collected — {monthLabel(selectedMonth)}</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.monthCollected.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.emerald }}>${totals.monthCollected.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
         </button>
         <button
@@ -3244,7 +3247,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showMonthOwedBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed — {monthLabel(selectedMonth)}</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.monthOwed > 0 ? C.rose : C.text }}>${totals.monthOwed.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.monthOwed > 0 ? C.rose : C.text }}>${totals.monthOwed.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
         </button>
         <button
@@ -3253,7 +3256,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showOutstandingBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed (all-time)</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.outstanding > 0 ? C.rose : C.text }}>${totals.outstanding.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.outstanding > 0 ? C.rose : C.text }}>${totals.outstanding.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
         </button>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
@@ -3286,7 +3289,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                     {inv.storeName}
                     {inv.invoiceNumber && <span style={{ color: C.gold }}> · inv# {inv.invoiceNumber}</span>}
                   </span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>${inv.amount.toFixed(2)}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>${inv.amount.toLocaleString("en-US", MONEY2)}</span>
                 </button>
               ))}
           </div>
@@ -3307,7 +3310,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${s.monthCollected.toFixed(2)}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${s.monthCollected.toLocaleString("en-US", MONEY2)}</span>
               </button>
             ))}
             {collectedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing collected this month.</div>}
@@ -3329,7 +3332,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.monthOwed.toFixed(2)}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.monthOwed.toLocaleString("en-US", MONEY2)}</span>
               </button>
             ))}
             {monthOwedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing owed this month.</div>}
@@ -3351,7 +3354,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.outstanding.toFixed(2)}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.outstanding.toLocaleString("en-US", MONEY2)}</span>
               </button>
             ))}
             {owedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing outstanding.</div>}
@@ -3416,7 +3419,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                   )}
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: C.textFaint }}>Outstanding</div>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: s.outstanding > 0 ? C.rose : C.emerald }}>${s.outstanding.toFixed(2)}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: s.outstanding > 0 ? C.rose : C.emerald }}>${s.outstanding.toLocaleString("en-US", MONEY2)}</div>
                   </div>
                 </div>
               </div>
@@ -3438,21 +3441,21 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                       onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
                       style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
                     >
-                      Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold, textDecoration: "underline" }}>${s.monthBilled.toFixed(2)}</b>
+                      Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold, textDecoration: "underline" }}>${s.monthBilled.toLocaleString("en-US", MONEY2)}</b>
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
                       style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
                     >
-                      Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, textDecoration: "underline" }}>${s.monthCollected.toFixed(2)}</b>
+                      Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, textDecoration: "underline" }}>${s.monthCollected.toLocaleString("en-US", MONEY2)}</b>
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
                       style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
                     >
-                      All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}>${s.allTimeBilled.toFixed(2)}</b>
+                      All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}>${s.allTimeBilled.toLocaleString("en-US", MONEY2)}</b>
                     </button>
                   </div>
 
@@ -3646,7 +3649,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                             >
                               <div style={{ fontWeight: 600, color: C.text }}>
                                 {new Date(p.paymentDate + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-                                <span style={{ color: C.emerald }}> · ${p.amount.toFixed(2)}</span>
+                                <span style={{ color: C.emerald }}> · ${p.amount.toLocaleString("en-US", MONEY2)}</span>
                               </div>
                               {p.notes && <div style={{ marginTop: 2, fontStyle: "italic" }}>{p.notes}</div>}
                             </div>
@@ -3753,9 +3756,9 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
                                 {inv.invoiceNumber && <span style={{ color: C.gold }}> · inv# {inv.invoiceNumber}</span>}
                               </div>
                               <div style={{ marginTop: 2 }}>
-                                <span>${inv.amount.toFixed(2)} billed</span>
-                                {inv.paid > 0 && <span style={{ color: C.emerald }}> · ${inv.paid.toFixed(2)} paid</span>}
-                                {remaining > 0 && effectiveRemaining > 0 && <span style={{ color: isOverdue ? C.rose : C.textDim }}> · ${effectiveRemaining.toFixed(2)} remaining, due {new Date(due + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}{isOverdue ? " (overdue)" : ""}</span>}
+                                <span>${inv.amount.toLocaleString("en-US", MONEY2)} billed</span>
+                                {inv.paid > 0 && <span style={{ color: C.emerald }}> · ${inv.paid.toLocaleString("en-US", MONEY2)} paid</span>}
+                                {remaining > 0 && effectiveRemaining > 0 && <span style={{ color: isOverdue ? C.rose : C.textDim }}> · ${effectiveRemaining.toLocaleString("en-US", MONEY2)} remaining, due {new Date(due + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" })}{isOverdue ? " (overdue)" : ""}</span>}
                                 {remaining > 0 && effectiveRemaining === 0 && <span style={{ color: C.emerald }}> · covered by a separate payment</span>}
                               </div>
                               {(inv.plSold > 0 || inv.nightSold > 0 || inv.daySold > 0) && (
@@ -4072,10 +4075,10 @@ function SalesTotalPage({ authUser, C, sbFetch, onNavigate }) {
               Total collected — {monthLabel(selectedMonth)}
             </div>
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 36, fontWeight: 600, marginTop: 8, color: C.emerald }}>
-              ${summary.totalCollected.toFixed(2)}
+              ${summary.totalCollected.toLocaleString("en-US", MONEY2)}
             </div>
             <div style={{ fontSize: 11, color: C.textFaint, marginTop: 6 }}>
-              Across all 3 accounts{summary.totalBilled > 0 ? ` · $${summary.totalBilled.toFixed(2)} invoiced this month (Corporate + Credit Term)` : ""}
+              Across all 3 accounts{summary.totalBilled > 0 ? ` · $${summary.totalBilled.toLocaleString("en-US", MONEY2)} invoiced this month (Corporate + Credit Term)` : ""}
             </div>
 
             {summary.totalCollected > 0 && (
@@ -4095,10 +4098,10 @@ function SalesTotalPage({ authUser, C, sbFetch, onNavigate }) {
                   <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>{a.label}</div>
                 </div>
                 <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>
-                  ${a.value.toFixed(2)}
+                  ${a.value.toLocaleString("en-US", MONEY2)}
                 </div>
                 <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>
-                  collected{a.billed !== null && a.billed > 0 ? ` of $${a.billed.toFixed(2)} invoiced` : ""}
+                  collected{a.billed !== null && a.billed > 0 ? ` of $${a.billed.toLocaleString("en-US", MONEY2)} invoiced` : ""}
                   {summary.totalCollected > 0 ? ` · ${pct(a.value).toFixed(0)}%` : ""}
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -4134,7 +4137,7 @@ function SalesTotalPage({ authUser, C, sbFetch, onNavigate }) {
               {summary.breakdowns[openBreakdown].map((row) => (
                 <div key={row.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.border}` }}>
                   <span style={{ fontSize: 13 }}>{row.name}</span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${row.amount.toFixed(2)}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.emerald }}>${row.amount.toLocaleString("en-US", MONEY2)}</span>
                 </div>
               ))}
             </div>
@@ -4261,10 +4264,10 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
           <div style={{ background: C.surface, border: `1px solid ${C.gold}50`, borderRadius: 14, padding: "22px 24px", marginBottom: 24 }}>
             <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Net — {monthLabel(selectedMonth)}</div>
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 32, fontWeight: 600, marginTop: 8, color: netTotal >= 0 ? C.emerald : C.rose }}>
-              {netTotal >= 0 ? "+" : "-"}${Math.abs(netTotal).toFixed(2)}
+              {netTotal >= 0 ? "+" : "-"}${Math.abs(netTotal).toLocaleString("en-US", MONEY2)}
             </div>
             <div style={{ fontSize: 11, color: C.textFaint, marginTop: 6 }}>
-              ${totalCollected.toFixed(2)} collected across all 3 sales accounts, minus ${marketingSpend.toFixed(2)} marketing spend
+              ${totalCollected.toLocaleString("en-US", MONEY2)} collected across all 3 sales accounts, minus ${marketingSpend.toLocaleString("en-US", MONEY2)} marketing spend
             </div>
             <button
               type="button"
@@ -4281,7 +4284,7 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
               style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
             >
               <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Consignment</div>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.consignmentCollected.toFixed(2)}</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.consignmentCollected.toLocaleString("en-US", MONEY2)}</div>
               <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected this month</div>
             </button>
 
@@ -4290,8 +4293,8 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
               style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
             >
               <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Corporate Accounts</div>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.corporateCollected.toFixed(2)}</div>
-              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected of ${summary.corporateBilled.toFixed(2)} billed</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.corporateCollected.toLocaleString("en-US", MONEY2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected of ${summary.corporateBilled.toLocaleString("en-US", MONEY2)} billed</div>
             </button>
 
             <button
@@ -4299,8 +4302,8 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
               style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
             >
               <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Marketing</div>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.gold }}>${marketingSpend.toFixed(2)}</div>
-              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>KOL ${summary.kolSpend.toFixed(2)} · ads ${summary.adSpend.toFixed(2)}</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.gold }}>${marketingSpend.toLocaleString("en-US", MONEY2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>KOL ${summary.kolSpend.toLocaleString("en-US", MONEY2)} · ads ${summary.adSpend.toLocaleString("en-US", MONEY2)}</div>
             </button>
 
             <button
@@ -4308,8 +4311,8 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
               style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px", cursor: "pointer" }}
             >
               <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Credit Term</div>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.creditCollected.toFixed(2)}</div>
-              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected of ${summary.creditBilled.toFixed(2)} billed</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.emerald }}>${summary.creditCollected.toLocaleString("en-US", MONEY2)}</div>
+              <div style={{ fontSize: 11, color: C.textFaint, marginTop: 4 }}>collected of ${summary.creditBilled.toLocaleString("en-US", MONEY2)} billed</div>
             </button>
           </div>
         </>
@@ -4487,7 +4490,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
       );
       setSaveError(false);
       const storeName = stores.find((s) => s.id === storeId)?.name || "";
-      logActivity?.("Logged Corporate Account report", storeName, `$${(parseFloat(form.amount) || 0).toFixed(2)} billed, $${(parseFloat(form.paid) || 0).toFixed(2)} paid on ${form.reportDate}`);
+      logActivity?.("Logged Corporate Account report", storeName, `$${(parseFloat(form.amount) || 0).toLocaleString("en-US", MONEY2)} billed, $${(parseFloat(form.paid) || 0).toLocaleString("en-US", MONEY2)} paid on ${form.reportDate}`);
       return true;
     } catch (e) {
       setSaveError(true);
@@ -4665,7 +4668,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showBilledBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Billed — {monthLabel(selectedMonth)}</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthBilled.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: C.gold }}>${totals.monthBilled.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by report</div>
         </button>
         <button
@@ -4674,7 +4677,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showMonthOwedBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed — {monthLabel(selectedMonth)}</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.monthOwed > 0 ? C.rose : C.text }}>${totals.monthOwed.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.monthOwed > 0 ? C.rose : C.text }}>${totals.monthOwed.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
         </button>
         <button
@@ -4683,7 +4686,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
           style={{ textAlign: "left", background: C.surface, border: `1px solid ${showOutstandingBreakdown ? C.gold : C.border}`, borderRadius: 12, padding: "16px 18px", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Still owed (all-time)</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.outstanding > 0 ? C.rose : C.text }}>${totals.outstanding.toFixed(2)}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: totals.outstanding > 0 ? C.rose : C.text }}>${totals.outstanding.toLocaleString("en-US", MONEY2)}</div>
           <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>tap to see by store</div>
         </button>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
@@ -4712,7 +4715,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
                     {r.storeName}
                     {r.invoiceNumber && <span style={{ color: C.gold }}> · inv# {r.invoiceNumber}</span>}
                   </span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>${r.amount.toFixed(2)}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.gold, flexShrink: 0 }}>${r.amount.toLocaleString("en-US", MONEY2)}</span>
                 </button>
               ))}
           </div>
@@ -4733,7 +4736,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.monthOwed.toFixed(2)}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.monthOwed.toLocaleString("en-US", MONEY2)}</span>
               </button>
             ))}
             {monthOwedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing owed this month.</div>}
@@ -4755,7 +4758,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderTop: `1px solid ${C.border}`, padding: "9px 4px", cursor: "pointer", textAlign: "left", width: "100%" }}
               >
                 <span style={{ fontSize: 13, color: C.text }}>{s.name}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.outstanding.toFixed(2)}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: C.rose }}>${s.outstanding.toLocaleString("en-US", MONEY2)}</span>
               </button>
             ))}
             {owedBreakdown.length === 0 && <div style={{ fontSize: 12, color: C.textFaint, padding: "9px 4px" }}>Nothing outstanding.</div>}
@@ -4820,7 +4823,7 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
                   )}
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: C.textFaint }}>Outstanding</div>
-                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: s.outstanding > 0 ? C.rose : C.emerald }}>${s.outstanding.toFixed(2)}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 15, color: s.outstanding > 0 ? C.rose : C.emerald }}>${s.outstanding.toLocaleString("en-US", MONEY2)}</div>
                   </div>
                 </div>
               </div>
@@ -4842,21 +4845,21 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
                       onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
                       style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
                     >
-                      Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold, textDecoration: "underline" }}>${s.monthBilled.toFixed(2)}</b>
+                      Billed this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold, textDecoration: "underline" }}>${s.monthBilled.toLocaleString("en-US", MONEY2)}</b>
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
                       style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
                     >
-                      Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, textDecoration: "underline" }}>${s.monthCollected.toFixed(2)}</b>
+                      Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, textDecoration: "underline" }}>${s.monthCollected.toLocaleString("en-US", MONEY2)}</b>
                     </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setShowHistory(s.id); }}
                       style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: C.textDim, fontSize: 12 }}
                     >
-                      All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}>${s.allTimeBilled.toFixed(2)}</b>
+                      All-time billed: <b style={{ fontFamily: "'IBM Plex Mono', monospace", textDecoration: "underline" }}>${s.allTimeBilled.toLocaleString("en-US", MONEY2)}</b>
                     </button>
                   </div>
 
@@ -5068,9 +5071,9 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
                                 {r.invoiceNumber && <span style={{ color: C.gold }}> · inv# {r.invoiceNumber}</span>}
                               </div>
                               <div style={{ marginTop: 2 }}>
-                                <span>${r.amount.toFixed(2)} billed</span>
-                                {r.paid > 0 && <span style={{ color: C.emerald }}> · ${r.paid.toFixed(2)} paid</span>}
-                                {remaining > 0 && <span style={{ color: C.rose }}> · ${remaining.toFixed(2)} remaining</span>}
+                                <span>${r.amount.toLocaleString("en-US", MONEY2)} billed</span>
+                                {r.paid > 0 && <span style={{ color: C.emerald }}> · ${r.paid.toLocaleString("en-US", MONEY2)} paid</span>}
+                                {remaining > 0 && <span style={{ color: C.rose }}> · ${remaining.toLocaleString("en-US", MONEY2)} remaining</span>}
                               </div>
                               {(r.plSold > 0 || r.nightSold > 0 || r.daySold > 0) && (
                                 <div style={{ marginTop: 2, color: C.textFaint }}>
@@ -6190,9 +6193,9 @@ function SingleDocument({ d, isDN, pageBreak }) {
                 <td style={{ ...td, textAlign: "center" }}>Box</td>
                 <td style={{ ...td, textAlign: "center" }}>{p.qty}</td>
                 {!isDN && <>
-                  <td style={{ ...td, textAlign: "right" }}>${p.price.toFixed(2)}</td>
+                  <td style={{ ...td, textAlign: "right" }}>${p.price.toLocaleString("en-US", MONEY2)}</td>
                   <td style={{ ...td, textAlign: "center" }}>%0</td>
-                  <td style={{ ...td, textAlign: "right" }}>${(p.qty * p.price).toFixed(2)}</td>
+                  <td style={{ ...td, textAlign: "right" }}>${(p.qty * p.price).toLocaleString("en-US", MONEY2)}</td>
                 </>}
               </tr>
             ))}
@@ -6218,12 +6221,12 @@ function SingleDocument({ d, isDN, pageBreak }) {
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
             <table style={{ borderCollapse: "collapse", fontSize: 11, width: 320 }}>
               <tbody>
-                <tr><td style={{ ...cell, padding: "4px 8px" }}>សរុប / Sub-Total :</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${subtotal.toFixed(2)}</td></tr>
-                <tr><td style={{ ...cell, padding: "4px 8px" }}>ចុះថ្លៃ / Discount ({Number(d.discount_percent || 0)}%):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${discountAmt.toFixed(2)}</td></tr>
+                <tr><td style={{ ...cell, padding: "4px 8px" }}>សរុប / Sub-Total :</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${subtotal.toLocaleString("en-US", MONEY2)}</td></tr>
+                <tr><td style={{ ...cell, padding: "4px 8px" }}>ចុះថ្លៃ / Discount ({Number(d.discount_percent || 0)}%):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${discountAmt.toLocaleString("en-US", MONEY2)}</td></tr>
                 {d.invoice_type === "tax" && (
-                  <tr><td style={{ ...cell, padding: "4px 8px" }}>VAT ({Number(d.vat_percent || 0)}%)</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${vatAmt.toFixed(2)}</td></tr>
+                  <tr><td style={{ ...cell, padding: "4px 8px" }}>VAT ({Number(d.vat_percent || 0)}%)</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${vatAmt.toLocaleString("en-US", MONEY2)}</td></tr>
                 )}
-                <tr style={{ fontWeight: 700 }}><td style={{ ...cell, padding: "4px 8px" }}>សរុបចុងក្រោយ/ Grand Total($):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${grandTotal.toFixed(2)}</td></tr>
+                <tr style={{ fontWeight: 700 }}><td style={{ ...cell, padding: "4px 8px" }}>សរុបចុងក្រោយ/ Grand Total($):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>${grandTotal.toLocaleString("en-US", MONEY2)}</td></tr>
                 <tr style={{ fontWeight: 700 }}><td style={{ ...cell, padding: "4px 8px" }}>សរុបចុងក្រោយ/ Grand Total(៛):</td><td style={{ ...cell, padding: "4px 8px", textAlign: "right" }}>៛{Math.round(rielTotal).toLocaleString()}</td></tr>
               </tbody>
             </table>
@@ -6898,8 +6901,8 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                 </div>
                 {p.price > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.emerald, marginTop: 2 }}>
-                    <span>value (@${p.price.toFixed(2)})</span>
-                    <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${p.value.toFixed(2)}</span>
+                    <span>value (@${p.price.toLocaleString("en-US", MONEY2)})</span>
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>${p.value.toLocaleString("en-US", MONEY2)}</span>
                   </div>
                 )}
               </div>
@@ -7082,7 +7085,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
               style={{ background: "none", border: "none", padding: 0, color: C.textDim, fontSize: 12, cursor: store.paymentHistory.length ? "pointer" : "default", textDecoration: store.paymentHistory.length ? "underline" : "none", textDecorationColor: C.emerald + "60", textUnderlineOffset: 3 }}
               disabled={!store.paymentHistory.length}
             >
-              Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${store.totalCollected.toFixed(2)}</b>
+              Collected this month: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald }}>${store.totalCollected.toLocaleString("en-US", MONEY2)}</b>
             </button>
             <span style={{ color: C.textFaint }}>
               <button
@@ -7091,11 +7094,11 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                 style={{ background: "none", border: "none", padding: 0, color: C.textFaint, fontSize: 12, cursor: store.allTimePaymentHistory.length ? "pointer" : "default", textDecoration: store.allTimePaymentHistory.length ? "underline" : "none", textDecorationColor: C.textFaint + "60", textUnderlineOffset: 3 }}
                 disabled={!store.allTimePaymentHistory.length}
               >
-                All-time: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>${store.allTimeCollected.toFixed(2)}</b>
+                All-time: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim }}>${store.allTimeCollected.toLocaleString("en-US", MONEY2)}</b>
               </button>
             </span>
             {store.hasPricing && (
-              <span style={{ color: C.gold }}>Stock value: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold }}>${store.totalValue.toFixed(2)}</b></span>
+              <span style={{ color: C.gold }}>Stock value: <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold }}>${store.totalValue.toLocaleString("en-US", MONEY2)}</b></span>
             )}
             {store.lastVisitDate && <span>Last visited {fmtDate(store.lastVisitDate)}</span>}
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}><ClipboardList size={11} />{store.visitCount} visit{store.visitCount === 1 ? "" : "s"} logged</span>
@@ -7107,7 +7110,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
               {store.paymentHistory.map((v) => (
                 <div key={v.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderTop: `1px solid ${C.border}` }}>
                   <span style={{ color: C.textDim }}>{fmtDate(v.date)} · {v.product}</span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, fontWeight: 600 }}>${v.paid.toFixed(2)}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.emerald, fontWeight: 600 }}>${v.paid.toLocaleString("en-US", MONEY2)}</span>
                 </div>
               ))}
             </div>
@@ -7119,7 +7122,7 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
               {store.allTimePaymentHistory.map((v) => (
                 <div key={v.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderTop: `1px solid ${C.border}` }}>
                   <span style={{ color: C.textDim }}>{fmtDate(v.date)} · {v.product}</span>
-                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim, fontWeight: 600 }}>${v.paid.toFixed(2)}</span>
+                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.textDim, fontWeight: 600 }}>${v.paid.toLocaleString("en-US", MONEY2)}</span>
                 </div>
               ))}
             </div>
@@ -7243,8 +7246,8 @@ function StoreRow({ store, expanded, onToggle, showPayments, onTogglePayments, s
                             {p.product}: {p.sold > 0 && `sold ${p.sold} `}{p.returned > 0 && `returned ${p.returned} `}
                           </span>
                         ))}
-                        {visit.paid > 0 && <span style={{ color: C.emerald }}>· paid ${visit.paid.toFixed(2)} </span>}
-                        {visit.owed > 0 && <span style={{ color: C.rose }}>· owes ${visit.owed.toFixed(2)} </span>}
+                        {visit.paid > 0 && <span style={{ color: C.emerald }}>· paid ${visit.paid.toLocaleString("en-US", MONEY2)} </span>}
+                        {visit.owed > 0 && <span style={{ color: C.rose }}>· owes ${visit.owed.toLocaleString("en-US", MONEY2)} </span>}
                         {visit.invoiceNumber && <span style={{ color: C.gold }}>· inv# {visit.invoiceNumber} </span>}
                         {visit.products.length === 0 && visit.paid === 0 && visit.owed === 0 && !visit.notes && !visit.invoiceNumber && <span style={{ color: C.textFaint }}>(tap to edit)</span>}
                       </div>
@@ -7314,7 +7317,7 @@ const miniInputStyle = {
 const STANDARD_DAYS = 26;
 
 function money(n) {
-  return "$" + (Number(n) || 0).toFixed(2);
+  return "$" + (Number(n) || 0).toLocaleString("en-US", MONEY2);
 }
 function pnum(v) {
   const n = parseFloat(v);
@@ -7940,10 +7943,10 @@ function PayrollSheetPrintView({ rows, month, total, onClose }) {
                 <td style={cell}>{r.staff_position || ""}</td>
                 <td style={{ ...cell, textAlign: "center" }}>{r.staff_start_date ? new Date(r.staff_start_date + "T00:00:00").toLocaleDateString("en-GB") : ""}</td>
                 <td style={{ ...cell, textAlign: "center" }}>{pnum(r.days_worked)}</td>
-                <td style={{ ...cell, textAlign: "right" }}>{dailyRate(r).toFixed(2)}</td>
-                <td style={{ ...cell, textAlign: "right" }}>{pnum(r.base_salary).toFixed(2)}</td>
-                <td style={{ ...cell, textAlign: "right" }}>{pnum(r.commission).toFixed(2)}</td>
-                <td style={{ ...cell, textAlign: "right", fontWeight: 700 }}>{netOf(r).toFixed(2)}</td>
+                <td style={{ ...cell, textAlign: "right" }}>{dailyRate(r).toLocaleString("en-US", MONEY2)}</td>
+                <td style={{ ...cell, textAlign: "right" }}>{pnum(r.base_salary).toLocaleString("en-US", MONEY2)}</td>
+                <td style={{ ...cell, textAlign: "right" }}>{pnum(r.commission).toLocaleString("en-US", MONEY2)}</td>
+                <td style={{ ...cell, textAlign: "right", fontWeight: 700 }}>{netOf(r).toLocaleString("en-US", MONEY2)}</td>
                 <td style={{ ...cell, textAlign: "center" }}>{r.aba_number || ""}</td>
                 <td style={cell}>{r.staff_name}</td>
                 <td style={{ ...cell, minWidth: 70 }}></td>
@@ -7954,9 +7957,9 @@ function PayrollSheetPrintView({ rows, month, total, onClose }) {
               <td style={{ ...cell, textAlign: "center" }} colSpan={2}>ចំនួនបុគ្គលិក = {rows.length} នាក់</td>
               <td style={cell}></td>
               <td style={cell}></td>
-              <td style={{ ...cell, textAlign: "right" }}>{sumBase.toFixed(2)}</td>
-              <td style={{ ...cell, textAlign: "right" }}>{sumInc.toFixed(2)}</td>
-              <td style={{ ...cell, textAlign: "right" }}>{total.toFixed(2)}</td>
+              <td style={{ ...cell, textAlign: "right" }}>{sumBase.toLocaleString("en-US", MONEY2)}</td>
+              <td style={{ ...cell, textAlign: "right" }}>{sumInc.toLocaleString("en-US", MONEY2)}</td>
+              <td style={{ ...cell, textAlign: "right" }}>{total.toLocaleString("en-US", MONEY2)}</td>
               <td style={cell}></td>
               <td style={cell}></td>
               <td style={cell}></td>
@@ -8102,7 +8105,7 @@ function SinglePayslip({ s, month, pageBreak }) {
   const cell = { border: "1px solid #000", padding: "6px 10px" };
   const earned = earnedOf(s);
   const earnings = [
-    { label: `ប្រាក់បៀវត្ស / Salary — ${pnum(s.days_worked)} ថ្ងៃ × $${dailyRate(s).toFixed(2)}`, v: earned },
+    { label: `ប្រាក់បៀវត្ស / Salary — ${pnum(s.days_worked)} ថ្ងៃ × $${dailyRate(s).toLocaleString("en-US", MONEY2)}`, v: earned },
     { label: "Incentive / កម្រៃលើកទឹកចិត្ត", v: pnum(s.commission) },
     { label: "ប្រាក់រង្វាន់ / Bonus", v: pnum(s.bonus) },
   ].filter((r) => r.v !== 0 || r.label.includes("Salary"));
@@ -8157,9 +8160,9 @@ function SinglePayslip({ s, month, pageBreak }) {
               <td style={{ ...cell, textAlign: "right", width: 140 }}>ចំនួន / Amount</td>
             </tr>
             {earnings.map((r) => (
-              <tr key={r.label}><td style={cell}>{r.label}</td><td style={{ ...cell, textAlign: "right" }}>${r.v.toFixed(2)}</td></tr>
+              <tr key={r.label}><td style={cell}>{r.label}</td><td style={{ ...cell, textAlign: "right" }}>${r.v.toLocaleString("en-US", MONEY2)}</td></tr>
             ))}
-            <tr style={{ fontWeight: 700 }}><td style={cell}>សរុបចំណូល / Gross pay</td><td style={{ ...cell, textAlign: "right" }}>${gross.toFixed(2)}</td></tr>
+            <tr style={{ fontWeight: 700 }}><td style={cell}>សរុបចំណូល / Gross pay</td><td style={{ ...cell, textAlign: "right" }}>${gross.toLocaleString("en-US", MONEY2)}</td></tr>
           </tbody>
         </table>
 
@@ -8171,9 +8174,9 @@ function SinglePayslip({ s, month, pageBreak }) {
                 <td style={{ ...cell, textAlign: "right", width: 140 }}>ចំនួន / Amount</td>
               </tr>
               {deductions.map((r) => (
-                <tr key={r.label}><td style={cell}>{r.label}</td><td style={{ ...cell, textAlign: "right" }}>−${r.v.toFixed(2)}</td></tr>
+                <tr key={r.label}><td style={cell}>{r.label}</td><td style={{ ...cell, textAlign: "right" }}>−${r.v.toLocaleString("en-US", MONEY2)}</td></tr>
               ))}
-              <tr style={{ fontWeight: 700 }}><td style={cell}>សរុបកាត់កង / Total deductions</td><td style={{ ...cell, textAlign: "right" }}>−${totalDed.toFixed(2)}</td></tr>
+              <tr style={{ fontWeight: 700 }}><td style={cell}>សរុបកាត់កង / Total deductions</td><td style={{ ...cell, textAlign: "right" }}>−${totalDed.toLocaleString("en-US", MONEY2)}</td></tr>
             </tbody>
           </table>
         )}
@@ -8182,7 +8185,7 @@ function SinglePayslip({ s, month, pageBreak }) {
           <tbody>
             <tr style={{ fontWeight: 700 }}>
               <td style={{ ...cell, border: "2px solid #000" }}>ប្រាក់ត្រូវទទួល / NET PAY</td>
-              <td style={{ ...cell, border: "2px solid #000", textAlign: "right", width: 140 }}>${net.toFixed(2)}</td>
+              <td style={{ ...cell, border: "2px solid #000", textAlign: "right", width: 140 }}>${net.toLocaleString("en-US", MONEY2)}</td>
             </tr>
           </tbody>
         </table>
