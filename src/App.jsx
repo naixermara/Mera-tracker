@@ -7783,9 +7783,16 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
       {/* ------------------------------- STAFF ------------------------------- */}
       {tab === "leave" && (() => {
         const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-        const people = staff.filter((s) => s.active || leaveRows.some((r) => r.staff_id === s.id));
+        // Allowance 0 means "not on the leave list" - they drop out of the grid
+        // entirely, but stay in payroll. Anyone with leave already logged is
+        // always shown, so nothing can be hidden by accident.
+        const entOfRaw = (s) => (s.annual_leave_days == null ? 15 : pnum(s.annual_leave_days));
+        const people = staff.filter(
+          (s) => (s.active || leaveRows.some((r) => r.staff_id === s.id)) &&
+                 (entOfRaw(s) > 0 || leaveRows.some((r) => r.staff_id === s.id))
+        );
         const usedOf = (id) => leaveRows.filter((r) => r.staff_id === id).reduce((a, r) => a + pnum(r.days), 0);
-        const entOf = (s) => (s.annual_leave_days == null ? 15 : pnum(s.annual_leave_days));
+        const entOf = entOfRaw;
         const years = [];
         for (let y = new Date().getFullYear() + 1; y >= 2023; y--) years.push(y);
         return (
@@ -7853,7 +7860,7 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                     );
                   })}
                   {people.length === 0 && (
-                    <tr><td colSpan={16} style={{ padding: "26px 12px", textAlign: "center", color: C.textFaint, fontSize: 13 }}>No staff yet — add them on the Staff tab.</td></tr>
+                    <tr><td colSpan={16} style={{ padding: "26px 12px", textAlign: "center", color: C.textFaint, fontSize: 13 }}>Nobody on the leave list yet — set an allowance above 0 on the Staff tab.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -7911,7 +7918,11 @@ function PayrollPage({ authUser, C, sbFetch, logActivity }) {
                 <div><label style={labelStyle}>Phone</label><input style={inputStyle} value={staffForm.phone} onChange={(e) => setStaffForm({ ...staffForm, phone: e.target.value })} /></div>
                 <div><label style={labelStyle}>Start date</label><input type="date" style={inputStyle} value={staffForm.start_date || ""} onChange={(e) => setStaffForm({ ...staffForm, start_date: e.target.value })} /></div>
                 <div><label style={labelStyle}>End date (if they left)</label><input type="date" style={inputStyle} value={staffForm.end_date || ""} onChange={(e) => setStaffForm({ ...staffForm, end_date: e.target.value })} /></div>
-                <div><label style={labelStyle}>Annual leave days / year</label><input style={inputStyle} inputMode="decimal" value={staffForm.annual_leave_days} onChange={(e) => setStaffForm({ ...staffForm, annual_leave_days: e.target.value })} placeholder="15" /></div>
+                <div>
+                  <label style={labelStyle}>Annual leave days / year</label>
+                  <input style={inputStyle} inputMode="decimal" value={staffForm.annual_leave_days} onChange={(e) => setStaffForm({ ...staffForm, annual_leave_days: e.target.value })} placeholder="15" />
+                  <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>0 = keep them off the leave list</div>
+                </div>
                 <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Notes</label><input style={inputStyle} value={staffForm.notes} onChange={(e) => setStaffForm({ ...staffForm, notes: e.target.value })} /></div>
               </div>
               <button onClick={saveStaff} className="primarybtn" style={{ marginTop: 16, background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 10, padding: "11px 22px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
