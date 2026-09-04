@@ -4672,6 +4672,26 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
             </select>
           </div>
 
+          {/* The ledger only holds what has been posted, so say plainly what is
+              sitting outside it rather than showing a bare zero. */}
+          {salesSummary && Math.abs(delta.revenue) > 0.005 && (
+            <div style={{ background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 11, padding: "13px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ color: C.amber, fontSize: 13, fontWeight: 700 }}>
+                  Not in these figures yet: {money(delta.revenue)} of {monthLabel(month)} sales
+                </div>
+                <div style={{ color: C.textFaint, fontSize: 11.5, marginTop: 3 }}>
+                  {priorPosted.count
+                    ? `${money(priorPosted.revenue)} already posted. The rest is recorded in the app but not in the ledger.`
+                    : "Recorded in the app, but nothing has been posted to the ledger for this month."}
+                </div>
+              </div>
+              <button onClick={() => setTab("sales")} style={{ background: "none", border: `1px solid ${C.amber}66`, color: C.amber, borderRadius: 9, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                Post it
+              </button>
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 16 }}>
             {[["Income", trial.income, C.emerald], ["Expenses", trial.expense, C.amber], ["Profit", trial.profit, trial.profit >= 0 ? C.emerald : C.rose]].map(([label, v, col]) => (
               <div key={label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
