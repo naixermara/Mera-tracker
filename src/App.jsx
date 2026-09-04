@@ -4030,6 +4030,10 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
 
   const [accounts, setAccounts] = useState([]);
   const [vendors, setVendors] = useState([]);
+  // Sales figures pulled from the rest of the app, so the month's takings can
+  // be drafted into a journal entry instead of retyped.
+  const [salesData, setSalesData] = useState(null);
+  const [salesMap, setSalesMap] = useState({ cashId: "", arId: "", revenueId: "" });
   const [entries, setEntries] = useState([]);
   const [lines, setLines] = useState([]);
   const [month, setMonth] = useState(currentMonthKey());
@@ -4057,6 +4061,14 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
       ]);
       setAccounts(a || []); setEntries(e || []); setLines(l || []);
       try { setVendors((await sbFetch("vendors?select=*&order=name.asc")) || []); } catch (err) { /* optional table */ }
+      try {
+        const [st, vi, br, ci, cp] = await Promise.all([
+          sbFetch("stores?select=*"), sbFetch("visits?select=*"),
+          sbFetch("bigco_reports?select=*"), sbFetch("credit_invoices?select=*"),
+          sbFetch("credit_payments?select=*"),
+        ]);
+        setSalesData({ stores: st || [], visits: vi || [], reports: br || [], invoices: ci || [], payments: cp || [] });
+      } catch (err) { /* sales tables optional here */ }
       setMissing(false);
     } catch (err) {
       setMissing(true);
@@ -4078,6 +4090,16 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
       .filter((n) => !isNaN(n));
     return prefix + String((used.length ? Math.max(...used) : 0) + 1).padStart(6, "0");
   }
+
+  useEffect(() => {
+    if (!accounts.length || salesMap.revenueId) return;
+    const pick = (code, fallback) => (accounts.find((a) => a.code === code) || fallback || {}).id || "";
+    setSalesMap({
+      cashId: pick("1000", accounts.find((a) => a.is_cash)),
+      arId: pick("1100"),
+      revenueId: pick("4000", accounts.find((a) => a.type === "income")),
+    });
+  }, [accounts]);
 
   const acctOf = (id) => accounts.find((a) => a.id === id);
   const cashAccounts = accounts.filter((a) => a.is_cash && a.active);
@@ -4174,6 +4196,51 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
   }
 
   // ---- derived --------------------------------------------------------
+  // What the app already knows about this month's selling. Revenue is the
+  // value of goods sold; collected is the cash that actually arrived; the
+  // difference is money still owed, which is what receivables are for.
+  const salesSummary = useMemo(() => {
+    if (!salesData) return null;
+    const { stores, visits, reports, invoices, payments } = salesData;
+    const priceOf = {};
+    stores.forEach((s) => { priceOf[s.name] = s; });
+    const PRODUCT_PRICE = { "Panty Liner": "pl_price", "Night": "night_price", "Day": "day_price" };
+
+    const mv = visits.filter((v) => monthKey(v.date) === month);
+    const consignRevenue = mv.reduce((a, v) => a + Number(v.sold || 0) * Number(priceOf[v.store_name]?.[PRODUCT_PRICE[v.product]] || 0), 0);
+    const consignCollected = mv.reduce((a, v) => a + Number(v.paid || 0), 0);
+
+    const mr = reports.filter((r) => monthKey(r.report_date) === month);
+    const corpRevenue = mr.reduce((a, r) => a + Number(r.amount || 0), 0);
+    const corpCollected = mr.reduce((a, r) => a + Number(r.paid || 0), 0);
+
+    const mi = invoices.filter((x) => monthKey(x.invoice_date) === month);
+    const mp = payments.filter((x) => monthKey(x.payment_date) === month);
+    const credRevenue = mi.reduce((a, x) => a + Number(x.amount || 0), 0);
+    const credCollected = mi.reduce((a, x) => a + Number(x.paid || 0), 0) + mp.reduce((a, x) => a + Number(x.amount || 0), 0);
+
+    const revenue = consignRevenue + corpRevenue + credRevenue;
+    const collected = consignCollected + corpCollected + credCollected;
+    return {
+      consignRevenue, consignCollected, corpRevenue, corpCollected, credRevenue, credCollected,
+      revenue, collected, receivable: revenue - collected,
+    };
+  }, [salesData, month]);
+
+  const salesRef = `AUTO-${month}`;
+  const alreadyPosted = entries.find((e) => e.reference === salesRef);
+
+  async function postSalesEntry() {
+    if (!salesSummary || salesSummary.revenue <= 0) { setError("Nothing sold in that month."); return; }
+    if (!salesMap.cashId || !salesMap.revenueId) { setError("Choose the cash and revenue accounts first."); return; }
+    if (salesSummary.receivable > 0.005 && !salesMap.arId) { setError("Some of it isn't collected yet — choose a receivables account."); return; }
+    if (alreadyPosted && !window.confirm(`${monthLabel(month)} sales were already posted as ${alreadyPosted.entry_no}. Post again anyway?`)) return;
+    const rows = [{ account_id: salesMap.cashId, debit: salesSummary.collected, credit: 0 }];
+    if (salesSummary.receivable > 0.005) rows.push({ account_id: salesMap.arId, debit: salesSummary.receivable, credit: 0 });
+    rows.push({ account_id: salesMap.revenueId, debit: 0, credit: salesSummary.revenue });
+    await saveEntry(`${month}-01`, "income", `Sales for ${monthLabel(month)}`, salesRef, rows.filter((r) => r.debit > 0 || r.credit > 0), null);
+  }
+
   const monthEntries = useMemo(
     () => entries.filter((e) => monthKey(e.entry_date) === month),
     [entries, month]
@@ -4223,7 +4290,7 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
   return (
     <div>
       <div style={{ display: "flex", gap: 6, marginTop: 22, marginBottom: 18, flexWrap: "wrap" }} className="mera-subtabs">
-        {[{ key: "post", label: "Post" }, { key: "journal", label: "Journal entry" }, { key: "ledger", label: "Entries" }, { key: "reports", label: "Reports" }, { key: "accounts", label: "Accounts" }].map((t) => (
+        {[{ key: "post", label: "Post" }, { key: "sales", label: "From sales" }, { key: "journal", label: "Journal entry" }, { key: "ledger", label: "Entries" }, { key: "reports", label: "Reports" }, { key: "accounts", label: "Accounts" }].map((t) => (
           <button key={t.key} onClick={() => { setTab(t.key); setError(""); }} style={{ background: "none", border: "none", padding: "6px 2px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginRight: 14, color: tab === t.key ? C.gold : C.textFaint, borderBottom: `2px solid ${tab === t.key ? C.gold : "transparent"}` }}>
             {t.label}
           </button>
@@ -4316,6 +4383,79 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
             </div>
           )}
         </>
+      )}
+
+      {/* ---------------- draft from the app's own sales ---------------- */}
+      {tab === "sales" && (
+        <div style={{ maxWidth: 640 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+            <div style={{ fontSize: 12.5, color: C.textFaint, flex: 1, minWidth: 220 }}>
+              Takes what the app already recorded this month and drafts one entry. Nothing is posted until you press the button.
+            </div>
+            <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>
+              {monthsThrough([month, currentMonthKey()]).map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}
+            </select>
+          </div>
+
+          {!salesSummary ? (
+            <div style={{ color: C.textFaint, fontSize: 13, padding: "20px 0" }}>Loading sales…</div>
+          ) : (
+            <>
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>{monthLabel(month)} — what the app recorded</div>
+                {[["Consignment", salesSummary.consignRevenue, salesSummary.consignCollected],
+                  ["Corporate Accounts", salesSummary.corpRevenue, salesSummary.corpCollected],
+                  ["Credit Term", salesSummary.credRevenue, salesSummary.credCollected]].map(([label, rev, col]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12.5, borderBottom: `1px solid ${C.border}` }}>
+                    <span style={{ color: C.textDim }}>{label}</span>
+                    <span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(rev)}</span> <span style={{ color: C.textFaint, fontSize: 11 }}>sold · {money(col)} collected</span></span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0 0", fontSize: 13, fontWeight: 700 }}>
+                  <span>Total</span>
+                  <span><span style={{ fontFamily: "'IBM Plex Mono', monospace", color: C.gold }}>{money(salesSummary.revenue)}</span> <span style={{ color: C.textFaint, fontSize: 11 }}>sold · {money(salesSummary.collected)} collected</span></span>
+                </div>
+              </div>
+
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Which accounts to use</div>
+                {[["Money collected goes to", "cashId", cashAccounts],
+                  ["Still owed goes to", "arId", accounts.filter((a) => a.type === "asset")],
+                  ["Sales are credited to", "revenueId", byType("income")]].map(([label, field, opts]) => (
+                  <div key={field} style={{ marginBottom: 10 }}>
+                    <label style={lbl}>{label}</label>
+                    <select style={inp} value={salesMap[field]} onChange={(e) => setSalesMap({ ...salesMap, [field]: e.target.value })}>
+                      <option value="">— choose —</option>
+                      {opts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              {salesSummary.revenue > 0 && (
+                <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 12.5 }}>
+                  <div style={{ color: C.textFaint, marginBottom: 8, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.06em" }}>This will post</div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}><span>Dr {acctOf(salesMap.cashId)?.name || "cash"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(salesSummary.collected)}</span></div>
+                  {salesSummary.receivable > 0.005 && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span>Dr {acctOf(salesMap.arId)?.name || "receivables"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(salesSummary.receivable)}</span></div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", color: C.textDim }}><span>&nbsp;&nbsp;&nbsp;Cr {acctOf(salesMap.revenueId)?.name || "sales"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(salesSummary.revenue)}</span></div>
+                </div>
+              )}
+
+              {alreadyPosted && (
+                <div style={{ background: C.amberBg, color: C.amber, padding: "11px 14px", borderRadius: 9, fontSize: 12.5, marginBottom: 14, border: `1px solid ${C.amber}30` }}>
+                  {monthLabel(month)} sales were already posted as <b>{alreadyPosted.entry_no}</b>. Posting again would double-count.
+                </div>
+              )}
+
+              <button onClick={postSalesEntry} disabled={busy || salesSummary.revenue <= 0} className="primarybtn"
+                style={{ width: "100%", background: salesSummary.revenue > 0 ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.surfaceHover, color: salesSummary.revenue > 0 ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 13.5, fontWeight: 700, cursor: salesSummary.revenue > 0 ? "pointer" : "default" }}>
+                {busy ? "Posting…" : `Post ${monthLabel(month)} sales`}
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {/* ---------------- manual journal ---------------- */}
