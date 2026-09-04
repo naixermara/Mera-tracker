@@ -4034,6 +4034,9 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
   // be drafted into a journal entry instead of retyped.
   const [salesData, setSalesData] = useState(null);
   const [salesMap, setSalesMap] = useState({ cashId: "", arId: "", revenueId: "" });
+  // Consignment "sold" is a shelf count, not a receipt, so the money collected
+  // is the figure we can actually stand behind. Default to it.
+  const [consignBasis, setConsignBasis] = useState("collected");
   const [entries, setEntries] = useState([]);
   const [lines, setLines] = useState([]);
   const [month, setMonth] = useState(currentMonthKey());
@@ -4207,8 +4210,11 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
     const PRODUCT_PRICE = { "Panty Liner": "pl_price", "Night": "night_price", "Day": "day_price" };
 
     const mv = visits.filter((v) => monthKey(v.date) === month);
-    const consignRevenue = mv.reduce((a, v) => a + Number(v.sold || 0) * Number(priceOf[v.store_name]?.[PRODUCT_PRICE[v.product]] || 0), 0);
+    const consignStockValue = mv.reduce((a, v) => a + Number(v.sold || 0) * Number(priceOf[v.store_name]?.[PRODUCT_PRICE[v.product]] || 0), 0);
     const consignCollected = mv.reduce((a, v) => a + Number(v.paid || 0), 0);
+    // On the money basis a consignment sale only counts once the store pays,
+    // so nothing is left sitting in receivables for stock we only counted.
+    const consignRevenue = consignBasis === "collected" ? consignCollected : consignStockValue;
 
     const mr = reports.filter((r) => monthKey(r.report_date) === month);
     const corpRevenue = mr.reduce((a, r) => a + Number(r.amount || 0), 0);
@@ -4222,10 +4228,10 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
     const revenue = consignRevenue + corpRevenue + credRevenue;
     const collected = consignCollected + corpCollected + credCollected;
     return {
-      consignRevenue, consignCollected, corpRevenue, corpCollected, credRevenue, credCollected,
+      consignRevenue, consignCollected, consignStockValue, corpRevenue, corpCollected, credRevenue, credCollected,
       revenue, collected, receivable: revenue - collected,
     };
-  }, [salesData, month]);
+  }, [salesData, month, consignBasis]);
 
   const salesRef = `AUTO-${month}`;
   const alreadyPosted = entries.find((e) => e.reference === salesRef);
@@ -4402,7 +4408,26 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
           ) : (
             <>
               <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>{monthLabel(month)} — what the app recorded</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Count a consignment sale when</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                  {[["collected", "The store pays you", "Only money actually received. Nothing counted on a shelf estimate."],
+                    ["stock", "The stock leaves the shelf", "Value of units logged as sold; anything unpaid becomes money owed to you."]].map(([key, label, help]) => (
+                    <button key={key} type="button" onClick={() => setConsignBasis(key)}
+                      style={{ flex: 1, minWidth: 220, textAlign: "left", background: consignBasis === key ? C.bg2 : "none", border: `1px solid ${consignBasis === key ? C.gold : C.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer" }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: consignBasis === key ? C.goldBright : C.text }}>{label}</div>
+                      <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 3, lineHeight: 1.4 }}>{help}</div>
+                    </button>
+                  ))}
+                </div>
+                {consignBasis === "collected" && salesSummary.consignStockValue > salesSummary.consignCollected + 0.005 && (
+                  <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 8 }}>
+                    Visits logged {money(salesSummary.consignStockValue)} of stock as sold this month. Not counted on this basis.
+                  </div>
+                )}
+              </div>
+
+              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>{monthLabel(month)} — what will be posted</div>
                 {[["Consignment", salesSummary.consignRevenue, salesSummary.consignCollected],
                   ["Corporate Accounts", salesSummary.corpRevenue, salesSummary.corpCollected],
                   ["Credit Term", salesSummary.credRevenue, salesSummary.credCollected]].map(([label, rev, col]) => (
