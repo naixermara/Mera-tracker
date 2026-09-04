@@ -4236,15 +4236,55 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
   const salesRef = `AUTO-${month}`;
   const alreadyPosted = entries.find((e) => e.reference === salesRef);
 
+  // What previous auto-posts for this month already put in the ledger. Summed
+  // by role rather than by account id, so it still works if the account
+  // mapping was changed between posts.
+  const priorPosted = useMemo(() => {
+    const ids = entries.filter((e) => e.reference === salesRef).map((e) => e.id);
+    if (!ids.length) return { revenue: 0, collected: 0, receivable: 0, count: 0 };
+    const ls = lines.filter((l) => ids.includes(l.entry_id));
+    const isCash = (id) => !!accounts.find((a) => a.id === id && a.is_cash);
+    return {
+      revenue: ls.filter((l) => accounts.find((a) => a.id === l.account_id && a.type === "income"))
+                 .reduce((a, l) => a + Number(l.credit || 0) - Number(l.debit || 0), 0),
+      collected: ls.filter((l) => isCash(l.account_id)).reduce((a, l) => a + Number(l.debit || 0) - Number(l.credit || 0), 0),
+      receivable: ls.filter((l) => !isCash(l.account_id) && accounts.find((a) => a.id === l.account_id && a.type === "asset"))
+                    .reduce((a, l) => a + Number(l.debit || 0) - Number(l.credit || 0), 0),
+      count: ids.length,
+    };
+  }, [entries, lines, accounts, salesRef]);
+
+  // Only ever post what has not been posted yet.
+  const delta = salesSummary ? {
+    revenue: salesSummary.revenue - priorPosted.revenue,
+    collected: salesSummary.collected - priorPosted.collected,
+    receivable: salesSummary.receivable - priorPosted.receivable,
+  } : { revenue: 0, collected: 0, receivable: 0 };
+  const nothingNew = Math.abs(delta.revenue) < 0.005 && Math.abs(delta.collected) < 0.005 && Math.abs(delta.receivable) < 0.005;
+
   async function postSalesEntry() {
-    if (!salesSummary || salesSummary.revenue <= 0) { setError("Nothing sold in that month."); return; }
+    if (!salesSummary) return;
     if (!salesMap.cashId || !salesMap.revenueId) { setError("Choose the cash and revenue accounts first."); return; }
-    if (salesSummary.receivable > 0.005 && !salesMap.arId) { setError("Some of it isn't collected yet — choose a receivables account."); return; }
-    if (alreadyPosted && !window.confirm(`${monthLabel(month)} sales were already posted as ${alreadyPosted.entry_no}. Post again anyway?`)) return;
-    const rows = [{ account_id: salesMap.cashId, debit: salesSummary.collected, credit: 0 }];
-    if (salesSummary.receivable > 0.005) rows.push({ account_id: salesMap.arId, debit: salesSummary.receivable, credit: 0 });
-    rows.push({ account_id: salesMap.revenueId, debit: 0, credit: salesSummary.revenue });
-    await saveEntry(`${month}-01`, "income", `Sales for ${monthLabel(month)}`, salesRef, rows.filter((r) => r.debit > 0 || r.credit > 0), null);
+    if (Math.abs(delta.receivable) > 0.005 && !salesMap.arId) { setError("Some of it isn't collected yet — choose a receivables account."); return; }
+    if (nothingNew) { setError("Nothing new since the last post for this month."); return; }
+
+    // A top-up posts only the change, so posting the same month twice can never
+    // double-count. A figure that went down posts on the opposite side.
+    const side = (amount, normallyDebit) =>
+      normallyDebit
+        ? { debit: Math.max(0, amount), credit: Math.max(0, -amount) }
+        : { debit: Math.max(0, -amount), credit: Math.max(0, amount) };
+
+    const rows = [
+      { account_id: salesMap.cashId, ...side(delta.collected, true) },
+      { account_id: salesMap.arId, ...side(delta.receivable, true) },
+      { account_id: salesMap.revenueId, ...side(delta.revenue, false) },
+    ].filter((r) => r.account_id && (r.debit > 0.005 || r.credit > 0.005));
+
+    const label = priorPosted.count
+      ? `Sales for ${monthLabel(month)} (top-up)`
+      : `Sales for ${monthLabel(month)}`;
+    await saveEntry(`${month}-01`, "income", label, salesRef, rows, null);
   }
 
   const monthEntries = useMemo(
@@ -4459,24 +4499,42 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
 
               {salesSummary.revenue > 0 && (
                 <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 12.5 }}>
-                  <div style={{ color: C.textFaint, marginBottom: 8, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.06em" }}>This will post</div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}><span>Dr {acctOf(salesMap.cashId)?.name || "cash"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(salesSummary.collected)}</span></div>
-                  {salesSummary.receivable > 0.005 && (
-                    <div style={{ display: "flex", justifyContent: "space-between" }}><span>Dr {acctOf(salesMap.arId)?.name || "receivables"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(salesSummary.receivable)}</span></div>
+                  <div style={{ color: C.textFaint, marginBottom: 8, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    {priorPosted.count ? "This will post (the difference only)" : "This will post"}
+                  </div>
+                  {nothingNew ? (
+                    <div style={{ color: C.textFaint }}>Nothing new to post.</div>
+                  ) : (
+                    <>
+                      {Math.abs(delta.collected) > 0.005 && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>{delta.collected > 0 ? "Dr" : "Cr"} {acctOf(salesMap.cashId)?.name || "cash"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(Math.abs(delta.collected))}</span></div>
+                      )}
+                      {Math.abs(delta.receivable) > 0.005 && (
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>{delta.receivable > 0 ? "Dr" : "Cr"} {acctOf(salesMap.arId)?.name || "receivables"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(Math.abs(delta.receivable))}</span></div>
+                      )}
+                      {Math.abs(delta.revenue) > 0.005 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", color: C.textDim }}><span>&nbsp;&nbsp;&nbsp;{delta.revenue > 0 ? "Cr" : "Dr"} {acctOf(salesMap.revenueId)?.name || "sales"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(Math.abs(delta.revenue))}</span></div>
+                      )}
+                    </>
                   )}
-                  <div style={{ display: "flex", justifyContent: "space-between", color: C.textDim }}><span>&nbsp;&nbsp;&nbsp;Cr {acctOf(salesMap.revenueId)?.name || "sales"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(salesSummary.revenue)}</span></div>
                 </div>
               )}
 
-              {alreadyPosted && (
-                <div style={{ background: C.amberBg, color: C.amber, padding: "11px 14px", borderRadius: 9, fontSize: 12.5, marginBottom: 14, border: `1px solid ${C.amber}30` }}>
-                  {monthLabel(month)} sales were already posted as <b>{alreadyPosted.entry_no}</b>. Posting again would double-count.
+              {priorPosted.count > 0 && (
+                <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 12.5 }}>
+                  <div style={{ color: C.textFaint, marginBottom: 6, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.06em" }}>Already posted for this month</div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textDim }}>{priorPosted.count} entr{priorPosted.count === 1 ? "y" : "ies"}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{money(priorPosted.revenue)}</span></div>
+                  <div style={{ fontSize: 11, color: C.textFaint, marginTop: 6 }}>
+                    {nothingNew
+                      ? "Nothing has changed since then, so there is nothing to post."
+                      : `Posting now adds only the difference — ${money(delta.revenue)} — so the month is never counted twice.`}
+                  </div>
                 </div>
               )}
 
-              <button onClick={postSalesEntry} disabled={busy || salesSummary.revenue <= 0} className="primarybtn"
-                style={{ width: "100%", background: salesSummary.revenue > 0 ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.surfaceHover, color: salesSummary.revenue > 0 ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 13.5, fontWeight: 700, cursor: salesSummary.revenue > 0 ? "pointer" : "default" }}>
-                {busy ? "Posting…" : `Post ${monthLabel(month)} sales`}
+              <button onClick={postSalesEntry} disabled={busy || nothingNew} className="primarybtn"
+                style={{ width: "100%", background: !nothingNew ? `linear-gradient(135deg, ${C.goldBright}, ${C.gold})` : C.surfaceHover, color: !nothingNew ? "#1A1508" : C.textFaint, border: "none", borderRadius: 9, padding: "12px 0", fontSize: 13.5, fontWeight: 700, cursor: !nothingNew ? "pointer" : "default" }}>
+                {busy ? "Posting…" : nothingNew ? "Nothing new to post" : priorPosted.count ? `Post the difference (${money(delta.revenue)})` : `Post ${monthLabel(month)} sales`}
               </button>
             </>
           )}
