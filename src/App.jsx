@@ -110,6 +110,26 @@ function monthLabel(key) {
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
+// Month pickers used to list only months that had data, so a quiet month
+// simply vanished and could not be selected. Fill the range instead: every
+// month from the earliest record through today, with no gaps.
+function monthsThrough(keys) {
+  const list = Array.from(new Set((keys || []).filter(Boolean)));
+  list.push(currentMonthKey());
+  const sorted = list.sort();
+  const last = currentMonthKey();
+  let [y, m] = sorted[0].split("-").map(Number);
+  const [ly, lm] = (sorted[sorted.length - 1] > last ? sorted[sorted.length - 1] : last).split("-").map(Number);
+  const out = [];
+  // guard against a stray date sending this into a very long loop
+  while ((y < ly || (y === ly && m <= lm)) && out.length < 180) {
+    out.push(`${y}-${String(m).padStart(2, "0")}`);
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return out.reverse();
+}
+
 function currentMonthKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -895,9 +915,7 @@ export default function MeraConsignmentApp() {
 
   const availableMonths = useMemo(() => {
     const v = visits || [];
-    const keys = new Set(v.map((x) => monthKey(x.date)));
-    keys.add(currentMonthKey());
-    return Array.from(keys).sort().reverse();
+    return monthsThrough(v.map((x) => monthKey(x.date)));
   }, [visits]);
 
   const stats = useMemo(() => {
@@ -1017,7 +1035,7 @@ export default function MeraConsignmentApp() {
               <Sparkles size={17} /> MÈRA
             </div>
             <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 34, margin: "6px 0 0", letterSpacing: "-0.01em" }}>
-              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "delivery" ? "Delivery & Invoices" : page === "stores" ? "Stores" : page === "payroll" ? "Payroll" : page === "sales" ? (salesSubPage === "total" ? "Sales Total" : salesSubPage === "credit" ? "Credit Operations" : "Consignment Operations") : "Consignment Operations"}
+              {page === "overview" ? "Overview" : page === "kol" ? "KOL & Content" : page === "delivery" ? "Delivery & Invoices" : page === "stores" ? "Stores" : page === "profit" ? "Profit & Margin" : page === "payroll" ? "Payroll" : page === "sales" ? (salesSubPage === "total" ? "Sales Total" : salesSubPage === "credit" ? "Credit Operations" : "Consignment Operations") : "Consignment Operations"}
             </h1>
             <div style={{ height: 2, width: 46, background: `linear-gradient(90deg, ${C.gold}, transparent)`, marginTop: 10 }} />
           </div>
@@ -1132,6 +1150,19 @@ export default function MeraConsignmentApp() {
           </button>
           {canSeePayroll && (
             <button
+              onClick={() => setPage("profit")}
+              style={{
+                background: page === "profit" ? C.surface : "none",
+                border: `1px solid ${page === "profit" ? C.gold : C.border}`,
+                color: page === "profit" ? C.goldBright : C.textFaint,
+                borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              Profit
+            </button>
+          )}
+          {canSeePayroll && (
+            <button
               onClick={() => setPage("payroll")}
               style={{
                 background: page === "payroll" ? C.surface : "none",
@@ -1166,6 +1197,10 @@ export default function MeraConsignmentApp() {
           <DeliveryNotePage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
         ) : page === "stores" ? (
           <StoresPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
+        ) : page === "profit" ? (
+          canSeePayroll
+            ? <ProfitPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
+            : <div style={{ padding: 40, color: C.textFaint, fontSize: 14 }}>You don't have access to profit figures.</div>
         ) : page === "payroll" ? (
           canSeePayroll
             ? <PayrollPage authUser={authUser} C={C} sbFetch={sbFetch} logActivity={logActivity} />
@@ -2152,9 +2187,8 @@ function KolPage({ authUser, C, sbFetch, logActivity }) {
 
   const availableMonths = useMemo(() => {
     const allVideos = (kols || []).flatMap((k) => k.videos);
-    const keys = new Set(allVideos.map((v) => monthKey(v.postedDate)));
-    keys.add(currentMonthKey());
-    return Array.from(keys).sort().reverse();
+    const payDates = (kols || []).flatMap((k) => k.payments || []).map((p) => monthKey(p.paymentDate));
+    return monthsThrough([...allVideos.map((v) => monthKey(v.postedDate)), ...payDates]);
   }, [kols]);
 
   return (
@@ -3141,9 +3175,7 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
 
   const availableMonths = useMemo(() => {
     const allInvoices = (stores || []).flatMap((s) => s.invoices);
-    const keys = new Set(allInvoices.map((inv) => monthKey(inv.invoiceDate)));
-    keys.add(currentMonthKey());
-    return Array.from(keys).sort().reverse();
+    return monthsThrough(allInvoices.map((inv) => monthKey(inv.invoiceDate)));
   }, [stores]);
 
   return (
@@ -3926,6 +3958,290 @@ function CreditTermPage({ authUser, C, sbFetch, logActivity }) {
   );
 }
 
+// ============================================================================
+// PROFIT / COGS  —  visible only to PAYROLL_EMAILS.
+//
+// Units arrive in two shapes: consignment visits are counted in PACKS, while
+// corporate reports and credit invoices are counted in BOXES. Everything is
+// converted to boxes using packs_per_box before cost is applied, otherwise a
+// pack sale would be charged at a whole box's cost.
+// ============================================================================
+
+const COST_PRODUCTS = [
+  { key: "pl", label: "Panty Liner", visitKey: "Panty Liner", soldCol: "pl_sold", priceCol: "pl_price" },
+  { key: "night", label: "Night (យប់)", visitKey: "Night", soldCol: "night_sold", priceCol: "night_price" },
+  { key: "day", label: "Day (ថ្ងៃ)", visitKey: "Day", soldCol: "day_sold", priceCol: "day_price" },
+];
+
+function ProfitPage({ authUser, C, sbFetch, logActivity }) {
+  const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+  const [costs, setCosts] = useState([]);
+  const [costDraft, setCostDraft] = useState([]);
+  const [costsMissing, setCostsMissing] = useState(false);
+  const [showCosts, setShowCosts] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [stores, setStores] = useState([]);
+  const [visits, setVisits] = useState([]);
+  const [bigcoReports, setBigcoReports] = useState([]);
+  const [creditInvoices, setCreditInvoices] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [storeRows, visitRows, reportRows, invoiceRows] = await Promise.all([
+          sbFetch("stores?select=*"),
+          sbFetch("visits?select=*"),
+          sbFetch("bigco_reports?select=*"),
+          sbFetch("credit_invoices?select=*"),
+        ]);
+        setStores(storeRows || []);
+        setVisits(visitRows || []);
+        setBigcoReports(reportRows || []);
+        setCreditInvoices(invoiceRows || []);
+      } catch (e) {
+        // sales data missing just means zeroes, not a broken page
+      }
+      try {
+        setCosts((await sbFetch("product_costs?select=*")) || []);
+        setCostsMissing(false);
+      } catch (e) {
+        setCostsMissing(true);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  useEffect(() => {
+    setCostDraft(
+      COST_PRODUCTS.map((p) => {
+        const row = costs.find((c) => c.product === p.key);
+        return {
+          product: p.key,
+          id: row ? row.id : null,
+          cost_per_box: row ? String(row.cost_per_box ?? "") : "",
+          packs_per_box: row ? String(row.packs_per_box ?? "") : "",
+        };
+      })
+    );
+  }, [costs]);
+
+  async function saveCosts() {
+    setBusy(true);
+    try {
+      const saved = [];
+      for (const d of costDraft) {
+        const body = {
+          product: d.product,
+          cost_per_box: pnum(d.cost_per_box),
+          packs_per_box: pnum(d.packs_per_box) || 1,
+        };
+        if (d.id) {
+          await sbFetch(`product_costs?id=eq.${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
+          saved.push({ ...body, id: d.id });
+        } else {
+          const [ins] = await sbFetch("product_costs", { method: "POST", body: JSON.stringify(body) });
+          if (ins) saved.push(ins);
+        }
+      }
+      setCosts(saved);
+      logActivity?.("Updated product costs", "", "");
+    } catch (e) {
+      setCostsMissing(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const availableMonths = useMemo(() => {
+    const acc = [];
+    visits.forEach((v) => v.date && acc.push(monthKey(v.date)));
+    bigcoReports.forEach((r) => r.report_date && acc.push(monthKey(r.report_date)));
+    creditInvoices.forEach((i) => i.invoice_date && acc.push(monthKey(i.invoice_date)));
+    return monthsThrough(acc);
+  }, [visits, bigcoReports, creditInvoices]);
+
+  const report = useMemo(() => {
+    const costOf = (k) => {
+      const c = costs.find((x) => x.product === k);
+      return { perBox: c ? Number(c.cost_per_box || 0) : 0, packsPerBox: c ? Number(c.packs_per_box || 1) || 1 : 1 };
+    };
+    const priceIndex = {};
+    stores.forEach((s) => { priceIndex[s.name] = s; });
+
+    const monthVisits = visits.filter((v) => monthKey(v.date) === selectedMonth);
+    const monthReports = bigcoReports.filter((r) => monthKey(r.report_date) === selectedMonth);
+    const monthInvoices = creditInvoices.filter((i) => monthKey(i.invoice_date) === selectedMonth);
+
+    const lines = COST_PRODUCTS.map((p) => {
+      const { perBox, packsPerBox } = costOf(p.key);
+
+      // Consignment sells in packs, at each store's own pack price
+      const packs = monthVisits.filter((v) => v.product === p.visitKey).reduce((a, v) => a + Number(v.sold || 0), 0);
+      const consignRevenue = monthVisits
+        .filter((v) => v.product === p.visitKey)
+        .reduce((a, v) => a + Number(v.sold || 0) * Number(priceIndex[v.store_name]?.[p.priceCol] || 0), 0);
+
+      // Corporate and credit sell in boxes
+      const corpBoxes = monthReports.reduce((a, r) => a + Number(r[p.soldCol] || 0), 0);
+      const creditBoxes = monthInvoices.reduce((a, i) => a + Number(i[p.soldCol] || 0), 0);
+
+      const boxEquivalent = corpBoxes + creditBoxes + (packsPerBox > 0 ? packs / packsPerBox : 0);
+      const cogs = boxEquivalent * perBox;
+      return { ...p, perBox, packsPerBox, packs, corpBoxes, creditBoxes, boxEquivalent, cogs, consignRevenue };
+    });
+
+    // Corporate and credit revenue is the invoiced amount, which is not split by
+    // product, so it is reported as one figure rather than guessed per line.
+    const corpRevenue = monthReports.reduce((a, r) => a + Number(r.amount || 0), 0);
+    const creditRevenue = monthInvoices.reduce((a, i) => a + Number(i.amount || 0), 0);
+    const consignRevenue = lines.reduce((a, l) => a + l.consignRevenue, 0);
+
+    const revenue = consignRevenue + corpRevenue + creditRevenue;
+    const cogs = lines.reduce((a, l) => a + l.cogs, 0);
+    const profit = revenue - cogs;
+    const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+    const priced = lines.every((l) => l.perBox > 0);
+
+    return { lines, revenue, consignRevenue, corpRevenue, creditRevenue, cogs, profit, margin, priced };
+  }, [visits, bigcoReports, creditInvoices, stores, costs, selectedMonth]);
+
+  const cell = { padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" };
+  const th = { textAlign: "right", padding: "11px 8px", fontWeight: 700 };
+  const inp = { background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "8px 10px", fontSize: 13, width: 100, textAlign: "right", boxSizing: "border-box" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 600, fontSize: 24, margin: 0 }}>Profit &amp; margin</h2>
+          <div style={{ fontSize: 12, color: C.textFaint, marginTop: 4 }}>Value of goods sold, minus what they cost you. Only you and Kimly can see this.</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "11px 12px", fontSize: 13, fontWeight: 600 }}>
+            {availableMonths.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}
+          </select>
+          <button onClick={() => setShowCosts(!showCosts)} style={{ background: showCosts ? C.surface : "none", border: `1px solid ${showCosts ? C.gold : C.border}`, color: C.text, borderRadius: 9, padding: "11px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+            Cost per box
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>Loading…</div>
+      ) : (
+        <>
+          {costsMissing && (
+            <div style={{ background: C.roseBg, color: C.rose, padding: "12px 14px", borderRadius: 9, fontSize: 12.5, marginBottom: 16, border: `1px solid ${C.rose}30` }}>
+              The <b>product_costs</b> table doesn't exist yet — run the COGS SQL in Supabase, then reload.
+            </div>
+          )}
+
+          {showCosts && !costsMissing && (
+            <div style={{ background: C.surface, border: `1px solid ${C.gold}55`, borderRadius: 12, padding: "18px 20px", marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>What each product costs you</div>
+              <div style={{ fontSize: 11.5, color: C.textFaint, marginBottom: 14 }}>
+                Cost of one box, and how many packs are in a box. Consignment sells by the pack, so the pack count is what converts those sales to a box cost.
+              </div>
+              {costDraft.map((d, idx) => (
+                <div key={d.product} style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+                  <div style={{ width: 130, fontSize: 13, fontWeight: 700 }}>{COST_PRODUCTS[idx].label}</div>
+                  <label style={{ fontSize: 11.5, color: C.textFaint }}>Cost / box $</label>
+                  <input inputMode="decimal" value={d.cost_per_box} placeholder="0.00" onChange={(e) => setCostDraft((prev) => prev.map((x, i) => (i === idx ? { ...x, cost_per_box: e.target.value } : x)))} style={inp} />
+                  <label style={{ fontSize: 11.5, color: C.textFaint }}>Packs / box</label>
+                  <input inputMode="decimal" value={d.packs_per_box} placeholder="12" onChange={(e) => setCostDraft((prev) => prev.map((x, i) => (i === idx ? { ...x, packs_per_box: e.target.value } : x)))} style={inp} />
+                  {pnum(d.cost_per_box) > 0 && pnum(d.packs_per_box) > 0 && (
+                    <span style={{ fontSize: 11, color: C.textFaint }}>= ${(pnum(d.cost_per_box) / pnum(d.packs_per_box)).toLocaleString("en-US", MONEY2)} a pack</span>
+                  )}
+                </div>
+              ))}
+              <button onClick={saveCosts} disabled={busy} className="primarybtn" style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 9, padding: "10px 20px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", marginTop: 6 }}>
+                {busy ? "Saving…" : "Save costs"}
+              </button>
+            </div>
+          )}
+
+          {!report.priced && !costsMissing && (
+            <div style={{ background: C.amberBg, color: C.amber, padding: "11px 14px", borderRadius: 9, fontSize: 12.5, marginBottom: 16, border: `1px solid ${C.amber}30` }}>
+              Some products have no cost set, so profit is overstated. Tap <b>Cost per box</b> to fill them in.
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 14, marginBottom: 18 }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Goods sold</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.text }}>${report.revenue.toLocaleString("en-US", MONEY2)}</div>
+              <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 4 }}>value sold this month</div>
+            </div>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Cost of goods</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: C.amber }}>${report.cogs.toLocaleString("en-US", MONEY2)}</div>
+              <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 4 }}>what those goods cost you</div>
+            </div>
+            <div style={{ background: C.surface, border: `1px solid ${C.gold}50`, borderRadius: 12, padding: "18px 20px" }}>
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Gross profit</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: report.profit >= 0 ? C.emerald : C.rose }}>${report.profit.toLocaleString("en-US", MONEY2)}</div>
+              <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 4 }}>before salaries and marketing</div>
+            </div>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "18px 20px" }}>
+              <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Margin</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, marginTop: 8, color: report.margin >= 0 ? C.emerald : C.rose }}>{report.margin.toFixed(1)}%</div>
+              <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 4 }}>profit per dollar sold</div>
+            </div>
+          </div>
+
+          <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 16 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 760 }}>
+              <thead>
+                <tr style={{ color: C.textFaint, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  <th style={{ textAlign: "left", padding: "11px 14px", fontWeight: 700 }}>Product</th>
+                  <th style={th}>Consignment<br />(packs)</th>
+                  <th style={th}>Corporate<br />(boxes)</th>
+                  <th style={th}>Credit<br />(boxes)</th>
+                  <th style={th}>Total<br />(boxes)</th>
+                  <th style={th}>Cost / box</th>
+                  <th style={{ ...th, padding: "11px 14px" }}>COGS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.lines.map((l) => (
+                  <tr key={l.key} style={{ borderTop: `1px solid ${C.border}` }}>
+                    <td style={{ padding: "10px 14px", fontWeight: 700 }}>{l.label}</td>
+                    <td style={cell}>{l.packs || "—"}</td>
+                    <td style={cell}>{l.corpBoxes || "—"}</td>
+                    <td style={cell}>{l.creditBoxes || "—"}</td>
+                    <td style={{ ...cell, color: C.text, fontWeight: 600 }}>{l.boxEquivalent ? l.boxEquivalent.toFixed(1) : "—"}</td>
+                    <td style={{ ...cell, color: l.perBox > 0 ? C.textDim : C.rose }}>{l.perBox > 0 ? `$${l.perBox.toLocaleString("en-US", MONEY2)}` : "not set"}</td>
+                    <td style={{ ...cell, padding: "10px 14px", color: C.amber, fontWeight: 700 }}>${l.cogs.toLocaleString("en-US", MONEY2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Where the sales came from</div>
+            {[
+              ["Consignment (packs × store price)", report.consignRevenue],
+              ["Corporate Accounts (invoiced)", report.corpRevenue],
+              ["Credit Term (invoiced)", report.creditRevenue],
+            ].map(([label, v]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+                <span style={{ color: C.textDim }}>{label}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>${v.toLocaleString("en-US", MONEY2)}</span>
+              </div>
+            ))}
+            <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 10, lineHeight: 1.5 }}>
+              This is the value of goods sold, not cash collected — see Sales → Total for what actually came in.
+              Gross profit is before salaries, KOL and ad spend.
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function SalesTotalPage({ authUser, C, sbFetch, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
@@ -3963,13 +4279,12 @@ function SalesTotalPage({ authUser, C, sbFetch, onNavigate }) {
   }, []);
 
   const availableMonths = useMemo(() => {
-    const keys = new Set();
-    visits.forEach((v) => v.date && keys.add(monthKey(v.date)));
-    bigcoReports.forEach((r) => r.report_date && keys.add(monthKey(r.report_date)));
-    creditInvoices.forEach((i) => i.invoice_date && keys.add(monthKey(i.invoice_date)));
-    creditPayments.forEach((p) => p.payment_date && keys.add(monthKey(p.payment_date)));
-    keys.add(currentMonthKey());
-    return Array.from(keys).sort().reverse();
+    const acc = [];
+    visits.forEach((v) => v.date && acc.push(monthKey(v.date)));
+    bigcoReports.forEach((r) => r.report_date && acc.push(monthKey(r.report_date)));
+    creditInvoices.forEach((i) => i.invoice_date && acc.push(monthKey(i.invoice_date)));
+    creditPayments.forEach((p) => p.payment_date && acc.push(monthKey(p.payment_date)));
+    return monthsThrough(acc);
   }, [visits, bigcoReports, creditInvoices, creditPayments]);
 
   const summary = useMemo(() => {
@@ -4197,14 +4512,13 @@ function OverviewPage({ authUser, C, sbFetch, onNavigate }) {
   }, []);
 
   const availableMonths = useMemo(() => {
-    const keys = new Set();
-    consignmentVisits.forEach((v) => keys.add(monthKey(v.date)));
-    kols.forEach((k) => k.videos.forEach((v) => keys.add(monthKey(v.posted_date))));
-    creditInvoices.forEach((inv) => keys.add(monthKey(inv.invoice_date)));
-    creditPayments.forEach((p) => p.payment_date && keys.add(monthKey(p.payment_date)));
-    bigcoReports.forEach((r) => r.report_date && keys.add(monthKey(r.report_date)));
-    keys.add(currentMonthKey());
-    return Array.from(keys).sort().reverse();
+    const acc = [];
+    consignmentVisits.forEach((v) => acc.push(monthKey(v.date)));
+    kols.forEach((k) => k.videos.forEach((v) => acc.push(monthKey(v.posted_date))));
+    creditInvoices.forEach((inv) => acc.push(monthKey(inv.invoice_date)));
+    creditPayments.forEach((p) => p.payment_date && acc.push(monthKey(p.payment_date)));
+    bigcoReports.forEach((r) => r.report_date && acc.push(monthKey(r.report_date)));
+    return monthsThrough(acc);
   }, [consignmentVisits, kols, creditInvoices, creditPayments, bigcoReports]);
 
   const summary = useMemo(() => {
