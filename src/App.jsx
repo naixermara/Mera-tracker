@@ -4041,6 +4041,8 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
   const [lines, setLines] = useState([]);
   const [month, setMonth] = useState(currentMonthKey());
   const [expandedEntry, setExpandedEntry] = useState(null);
+  const [reportKind, setReportKind] = useState("trial");
+  const [printingReport, setPrintingReport] = useState(false);
 
   // quick post form
   const [kind, setKind] = useState("expense");
@@ -4663,77 +4665,289 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
       )}
 
       {/* ---------------- reports ---------------- */}
-      {tab === "reports" && (
-        <>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>Trial balance — {monthLabel(month)}</div>
-            <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>
-              {availableMonths.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}
-            </select>
-          </div>
+      {/* ---------------- accountant's reports ---------------- */}
+      {tab === "reports" && (() => {
+        const ids = new Set(monthEntries.map((e) => e.id));
+        const periodLines = lines.filter((l) => ids.has(l.entry_id));
+        const entryById = (id) => entries.find((e) => e.id === id);
 
-          {/* The ledger only holds what has been posted, so say plainly what is
-              sitting outside it rather than showing a bare zero. */}
-          {salesSummary && Math.abs(delta.revenue) > 0.005 && (
-            <div style={{ background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 11, padding: "13px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        // Journal: every entry in date order, with its lines under it.
+        const journal = [...monthEntries].sort((a, b) =>
+          (a.entry_date + (a.entry_no || "")).localeCompare(b.entry_date + (b.entry_no || ""))
+        );
+
+        // General ledger: per account, opening balance then each movement.
+        const ledgerAccounts = accounts
+          .map((a) => {
+            const before = lines.filter((l) => {
+              const e = entryById(l.entry_id);
+              return l.account_id === a.id && e && e.entry_date < `${month}-01`;
+            });
+            const opening = before.reduce((x, l) => x + Number(l.debit || 0) - Number(l.credit || 0), 0);
+            const rows = periodLines
+              .filter((l) => l.account_id === a.id)
+              .map((l) => ({ ...l, entry: entryById(l.entry_id) }))
+              .sort((x, y) => (x.entry?.entry_date || "").localeCompare(y.entry?.entry_date || ""));
+            let running = opening;
+            const withBalance = rows.map((r) => {
+              running += Number(r.debit || 0) - Number(r.credit || 0);
+              return { ...r, balance: running };
+            });
+            return { ...a, opening, rows: withBalance, closing: running };
+          })
+          .filter((a) => a.rows.length || Math.abs(a.opening) > 0.005);
+
+        const REPORTS = [
+          { key: "trial", label: "Trial Balance" },
+          { key: "journal", label: "Journal" },
+          { key: "gl", label: "General Ledger Detail" },
+          { key: "coa", label: "Chart of Account List" },
+        ];
+        const title = REPORTS.find((r) => r.key === reportKind)?.label;
+
+        // One renderer, used on screen and in the print view, so what you see
+        // is exactly what prints.
+        const body = (forPrint) => {
+          const t = forPrint
+            ? { th: { textAlign: "right", padding: "5px 6px", borderBottom: "1px solid #000", fontWeight: 700 },
+                td: { padding: "4px 6px", textAlign: "right", borderBottom: "1px solid #ddd" },
+                tdL: { padding: "4px 6px", textAlign: "left", borderBottom: "1px solid #ddd" },
+                thL: { textAlign: "left", padding: "5px 6px", borderBottom: "1px solid #000", fontWeight: 700 },
+                sub: { color: "#555" }, tot: { fontWeight: 700, borderTop: "2px solid #000" } }
+            : { th, td, tdL: { padding: "9px 8px", textAlign: "left" },
+                thL: { textAlign: "left", padding: "11px 14px", fontWeight: 700 },
+                sub: { color: C.textFaint }, tot: { fontWeight: 700, borderTop: `2px solid ${C.border}` } };
+
+          if (reportKind === "trial") {
+            return (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: forPrint ? 11 : 13 }}>
+                <thead><tr style={forPrint ? {} : { color: C.textFaint, fontSize: 10.5, textTransform: "uppercase" }}>
+                  <th style={t.thL}>Account</th><th style={t.thL}>Type</th><th style={t.th}>Debit</th><th style={t.th}>Credit</th>
+                </tr></thead>
+                <tbody>
+                  {trial.rows.map((r) => (
+                    <tr key={r.id}>
+                      <td style={t.tdL}>{r.code} · {r.name}</td>
+                      <td style={{ ...t.tdL, ...t.sub, fontSize: forPrint ? 10 : 11.5 }}>{r.type}</td>
+                      <td style={t.td}>{r.dr ? money(r.dr) : "—"}</td>
+                      <td style={t.td}>{r.cr ? money(r.cr) : "—"}</td>
+                    </tr>
+                  ))}
+                  <tr style={t.tot}>
+                    <td style={t.tdL} colSpan={2}>Total</td>
+                    <td style={t.td}>{money(trial.totalDr)}</td>
+                    <td style={t.td}>{money(trial.totalCr)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            );
+          }
+
+          if (reportKind === "journal") {
+            return (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: forPrint ? 10.5 : 13 }}>
+                <thead><tr style={forPrint ? {} : { color: C.textFaint, fontSize: 10.5, textTransform: "uppercase" }}>
+                  <th style={t.thL}>Date</th><th style={t.thL}>No.</th><th style={t.thL}>Account</th>
+                  <th style={t.thL}>Description</th><th style={t.th}>Debit</th><th style={t.th}>Credit</th>
+                </tr></thead>
+                <tbody>
+                  {journal.map((e) =>
+                    linesOf(e.id).map((l, idx) => (
+                      <tr key={l.id}>
+                        <td style={t.tdL}>{idx === 0 ? fmtDate(e.entry_date) : ""}</td>
+                        <td style={{ ...t.tdL, fontFamily: "'IBM Plex Mono', monospace" }}>{idx === 0 ? e.entry_no || "" : ""}</td>
+                        <td style={{ ...t.tdL, paddingLeft: Number(l.credit) > 0 ? (forPrint ? 20 : 26) : undefined }}>
+                          {acctOf(l.account_id)?.code} · {acctOf(l.account_id)?.name}
+                        </td>
+                        <td style={{ ...t.tdL, ...t.sub }}>{idx === 0 ? [e.memo, e.vendor, e.reference].filter(Boolean).join(" · ") : ""}</td>
+                        <td style={t.td}>{Number(l.debit) > 0 ? money(l.debit) : ""}</td>
+                        <td style={t.td}>{Number(l.credit) > 0 ? money(l.credit) : ""}</td>
+                      </tr>
+                    ))
+                  )}
+                  <tr style={t.tot}>
+                    <td style={t.tdL} colSpan={4}>Total — {journal.length} entr{journal.length === 1 ? "y" : "ies"}</td>
+                    <td style={t.td}>{money(trial.totalDr)}</td>
+                    <td style={t.td}>{money(trial.totalCr)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            );
+          }
+
+          if (reportKind === "gl") {
+            return (
               <div>
-                <div style={{ color: C.amber, fontSize: 13, fontWeight: 700 }}>
-                  Not in these figures yet: {money(delta.revenue)} of {monthLabel(month)} sales
-                </div>
-                <div style={{ color: C.textFaint, fontSize: 11.5, marginTop: 3 }}>
-                  {priorPosted.count
-                    ? `${money(priorPosted.revenue)} already posted. The rest is recorded in the app but not in the ledger.`
-                    : "Recorded in the app, but nothing has been posted to the ledger for this month."}
-                </div>
+                {ledgerAccounts.map((a) => (
+                  <div key={a.id} style={{ marginBottom: forPrint ? 14 : 20, breakInside: "avoid" }}>
+                    <div style={{ fontWeight: 700, fontSize: forPrint ? 11 : 13.5, marginBottom: 4, borderBottom: forPrint ? "1px solid #000" : `1px solid ${C.border}`, paddingBottom: 3 }}>
+                      {a.code} · {a.name} <span style={{ ...t.sub, fontWeight: 400, fontSize: forPrint ? 10 : 11.5 }}>({a.type})</span>
+                    </div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: forPrint ? 10 : 12.5 }}>
+                      <tbody>
+                        <tr>
+                          <td style={{ ...t.tdL, ...t.sub }} colSpan={3}>Opening balance</td>
+                          <td style={t.td}></td><td style={t.td}></td>
+                          <td style={{ ...t.td, fontWeight: 600 }}>{money(a.opening)}</td>
+                        </tr>
+                        {a.rows.map((r) => (
+                          <tr key={r.id}>
+                            <td style={t.tdL}>{fmtDate(r.entry?.entry_date)}</td>
+                            <td style={{ ...t.tdL, fontFamily: "'IBM Plex Mono', monospace" }}>{r.entry?.entry_no || ""}</td>
+                            <td style={{ ...t.tdL, ...t.sub }}>{r.entry?.memo || ""}</td>
+                            <td style={t.td}>{Number(r.debit) > 0 ? money(r.debit) : ""}</td>
+                            <td style={t.td}>{Number(r.credit) > 0 ? money(r.credit) : ""}</td>
+                            <td style={t.td}>{money(r.balance)}</td>
+                          </tr>
+                        ))}
+                        <tr style={t.tot}>
+                          <td style={t.tdL} colSpan={3}>Closing balance</td>
+                          <td style={t.td}>{money(a.rows.reduce((x, r) => x + Number(r.debit || 0), 0))}</td>
+                          <td style={t.td}>{money(a.rows.reduce((x, r) => x + Number(r.credit || 0), 0))}</td>
+                          <td style={t.td}>{money(a.closing)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+                {ledgerAccounts.length === 0 && <div style={{ ...t.sub, fontSize: 12.5, padding: "20px 0" }}>No movement in this period.</div>}
               </div>
-              <button onClick={() => setTab("sales")} style={{ background: "none", border: `1px solid ${C.amber}66`, color: C.amber, borderRadius: 9, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                Post it
-              </button>
-            </div>
-          )}
+            );
+          }
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 16 }}>
-            {[["Income", trial.income, C.emerald], ["Expenses", trial.expense, C.amber], ["Profit", trial.profit, trial.profit >= 0 ? C.emerald : C.rose]].map(([label, v, col]) => (
-              <div key={label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
-                <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>{label}</div>
-                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: col }}>{money(v)}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 620 }}>
-              <thead>
-                <tr style={{ color: C.textFaint, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  <th style={{ textAlign: "left", padding: "11px 14px", fontWeight: 700 }}>Account</th>
-                  <th style={{ textAlign: "left", padding: "11px 8px", fontWeight: 700 }}>Type</th>
-                  <th style={th}>Debit</th>
-                  <th style={{ ...th, padding: "11px 14px" }}>Credit</th>
-                </tr>
-              </thead>
+          // chart of accounts
+          return (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: forPrint ? 11 : 13 }}>
+              <thead><tr style={forPrint ? {} : { color: C.textFaint, fontSize: 10.5, textTransform: "uppercase" }}>
+                <th style={t.thL}>Code</th><th style={t.thL}>Account name</th><th style={t.thL}>Type</th><th style={t.thL}>Cash</th><th style={t.thL}>Status</th>
+              </tr></thead>
               <tbody>
-                {trial.rows.map((r) => (
-                  <tr key={r.id} style={{ borderTop: `1px solid ${C.border}` }}>
-                    <td style={{ padding: "9px 14px" }}>{r.code} · {r.name}</td>
-                    <td style={{ padding: "9px 8px", color: C.textFaint, fontSize: 11.5 }}>{r.type}</td>
-                    <td style={td}>{r.dr ? money(r.dr) : "—"}</td>
-                    <td style={{ ...td, padding: "9px 14px" }}>{r.cr ? money(r.cr) : "—"}</td>
+                {[...accounts].sort((a, b) => a.code.localeCompare(b.code)).map((a) => (
+                  <tr key={a.id}>
+                    <td style={{ ...t.tdL, fontFamily: "'IBM Plex Mono', monospace" }}>{a.code}</td>
+                    <td style={t.tdL}>{a.name}</td>
+                    <td style={{ ...t.tdL, ...t.sub }}>{a.type}</td>
+                    <td style={t.tdL}>{a.is_cash ? "Yes" : ""}</td>
+                    <td style={{ ...t.tdL, ...t.sub }}>{a.active ? "Active" : "Inactive"}</td>
                   </tr>
                 ))}
-                <tr style={{ borderTop: `2px solid ${C.border}`, fontWeight: 700 }}>
-                  <td style={{ padding: "11px 14px" }} colSpan={2}>Total</td>
-                  <td style={td}>{money(trial.totalDr)}</td>
-                  <td style={{ ...td, padding: "11px 14px" }}>{money(trial.totalCr)}</td>
-                </tr>
               </tbody>
             </table>
-          </div>
-          <div style={{ marginTop: 12, fontSize: 12.5, fontWeight: 700, color: trial.balanced ? C.emerald : C.rose }}>
-            {trial.balanced ? "Balanced — debits equal credits." : `OUT OF BALANCE by ${money(Math.abs(trial.totalDr - trial.totalCr))}`}
-          </div>
-        </>
-      )}
+          );
+        };
 
+        return (
+          <>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              {REPORTS.map((r) => (
+                <button key={r.key} onClick={() => setReportKind(r.key)}
+                  style={{ background: reportKind === r.key ? C.surface : "none", border: `1px solid ${reportKind === r.key ? C.gold : C.border}`, color: reportKind === r.key ? C.goldBright : C.textFaint, borderRadius: 9, padding: "9px 15px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>
+                {title}{reportKind !== "coa" ? ` — ${monthLabel(month)}` : ""}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {reportKind !== "coa" && (
+                  <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 12px", fontSize: 13, fontWeight: 600 }}>
+                    {availableMonths.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}
+                  </select>
+                )}
+                <button onClick={() => setPrintingReport(true)} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 9, padding: "10px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                  Print / PDF
+                </button>
+              </div>
+            </div>
+
+            {salesSummary && Math.abs(delta.revenue) > 0.005 && reportKind !== "coa" && (
+              <div style={{ background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 11, padding: "13px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ color: C.amber, fontSize: 13, fontWeight: 700 }}>Not in these figures yet: {money(delta.revenue)} of {monthLabel(month)} sales</div>
+                  <div style={{ color: C.textFaint, fontSize: 11.5, marginTop: 3 }}>
+                    {priorPosted.count
+                      ? `${money(priorPosted.revenue)} already posted. The rest is recorded in the app but not in the ledger.`
+                      : "Recorded in the app, but nothing has been posted to the ledger for this month."}
+                  </div>
+                </div>
+                <button onClick={() => setTab("sales")} style={{ background: "none", border: `1px solid ${C.amber}66`, color: C.amber, borderRadius: 9, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Post it</button>
+              </div>
+            )}
+
+            {reportKind === "trial" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 16 }}>
+                {[["Income", trial.income, C.emerald], ["Expenses", trial.expense, C.amber], ["Profit", trial.profit, trial.profit >= 0 ? C.emerald : C.rose]].map(([label, v, col]) => (
+                  <div key={label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px" }}>
+                    <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>{label}</div>
+                    <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 22, fontWeight: 600, marginTop: 6, color: col }}>{money(v)}</div>
+                    {label === "Profit" && <div style={{ fontSize: 10, color: C.textFaint, marginTop: 4 }}>income − expenses posted so far</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ overflowX: "auto", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: reportKind === "gl" ? "16px 18px" : 0 }}>
+              {body(false)}
+            </div>
+
+            {reportKind === "trial" && (
+              <div style={{ marginTop: 12, fontSize: 12.5, fontWeight: 700, color: trial.balanced ? C.emerald : C.rose }}>
+                {trial.balanced ? "Balanced — debits equal credits." : `OUT OF BALANCE by ${money(Math.abs(trial.totalDr - trial.totalCr))}`}
+              </div>
+            )}
+
+            {printingReport && createPortal(
+              <div className="doc-print-root" style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 999999, overflowY: "auto" }}>
+                <style>{`
+                  @page { size: A4 portrait; margin: 12mm; }
+                  @media print {
+                    .doc-no-print { display: none !important; }
+                    html, body { background: #fff !important; height: auto !important; overflow: visible !important; margin: 0; padding: 0; }
+                    .doc-print-root { display: block !important; position: static !important; inset: auto !important; overflow: visible !important; height: auto !important; z-index: auto !important; }
+                  }
+                `}</style>
+                <div className="doc-no-print" style={{ position: "sticky", top: 0, background: "#1a1a1a", padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
+                  <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>{title}{reportKind !== "coa" ? ` — ${monthLabel(month)}` : ""}</span>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => window.print()} style={{ background: "#C9A961", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, color: "#1A1508", cursor: "pointer" }}>Print / Save as PDF</button>
+                    <button onClick={() => setPrintingReport(false)} style={{ background: "none", border: "1px solid #555", borderRadius: 8, padding: "8px 18px", fontSize: 13, color: "#fff", cursor: "pointer" }}>Close</button>
+                  </div>
+                </div>
+                <div style={{ maxWidth: 720, margin: "0 auto", padding: "18px 0 30px", color: "#1a1a1a", fontFamily: "'Battambang', Arial, sans-serif" }}>
+                  <div style={{ textAlign: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: 17, fontWeight: 700 }}>ជំហានត្រេឌីង ឯ.ក</div>
+                    <div style={{ fontSize: 11, color: "#333" }}>CHOUMHEAN TRADING CO., LTD.</div>
+                  </div>
+                  <div style={{ textAlign: "center", marginBottom: 16 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, textDecoration: "underline" }}>{title}</div>
+                    <div style={{ fontSize: 11, marginTop: 2 }}>
+                      {reportKind === "coa" ? `${accounts.length} accounts` : `For ${monthLabel(month)}`} · printed {fmtDate(todayStr())}
+                    </div>
+                  </div>
+                  {body(true)}
+                  {reportKind === "trial" && (
+                    <div style={{ marginTop: 10, fontSize: 11, fontWeight: 700 }}>
+                      {trial.balanced ? "Balanced — debits equal credits." : `OUT OF BALANCE by ${money(Math.abs(trial.totalDr - trial.totalCr))}`}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 44 }}>
+                    {["រៀបចំដោយ / Prepared by", "អនុម័តដោយ / Approved by"].map((s) => (
+                      <div key={s} style={{ width: "40%", textAlign: "center", fontSize: 11 }}>
+                        <div style={{ height: 60 }} />
+                        <div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>{s}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )}
+          </>
+        );
+      })()}
       {/* ---------------- chart of accounts ---------------- */}
       {tab === "accounts" && (
         <>
@@ -8514,7 +8728,9 @@ const miniInputStyle = {
 const STANDARD_DAYS = 26;
 
 function money(n) {
-  return "$" + (Number(n) || 0).toLocaleString("en-US", MONEY2);
+  const v = Number(n) || 0;
+  // Accountants read "-$438.00", never "$-438.00".
+  return (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString("en-US", MONEY2);
 }
 function pnum(v) {
   const n = parseFloat(v);
