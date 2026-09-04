@@ -5009,6 +5009,9 @@ function AccountingPage({ authUser, C, sbFetch, logActivity }) {
   );
 }
 
+// Visit product name -> the store's price column for it
+const PRICE_COL = COST_PRODUCTS.reduce((m, p) => ({ ...m, [p.visitKey]: p.priceCol }), {});
+
 function ProfitPage({ authUser, C, sbFetch, logActivity }) {
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
@@ -5016,6 +5019,9 @@ function ProfitPage({ authUser, C, sbFetch, logActivity }) {
   const [costDraft, setCostDraft] = useState([]);
   const [costsMissing, setCostsMissing] = useState(false);
   const [showCosts, setShowCosts] = useState(false);
+  // Same choice as the accounting tab: consignment "sold" is a shelf count,
+  // so by default only the part the stores have actually paid for counts.
+  const [consignBasis, setConsignBasis] = useState("collected");
   const [busy, setBusy] = useState(false);
   const [stores, setStores] = useState([]);
   const [visits, setVisits] = useState([]);
@@ -5109,14 +5115,23 @@ function ProfitPage({ authUser, C, sbFetch, logActivity }) {
     const monthReports = bigcoReports.filter((r) => monthKey(r.report_date) === selectedMonth);
     const monthInvoices = creditInvoices.filter((i) => monthKey(i.invoice_date) === selectedMonth);
 
+    // How much of the consignment stock has actually been paid for. On the
+    // money basis both revenue AND cost are scaled by this, so margin stays
+    // honest instead of charging a full month of cost against part payment.
+    const stockValueAll = monthVisits.reduce(
+      (a, v) => a + Number(v.sold || 0) * Number(priceIndex[v.store_name]?.[PRICE_COL[v.product]] || 0), 0);
+    const collectedAll = monthVisits.reduce((a, v) => a + Number(v.paid || 0), 0);
+    const paidRatio = consignBasis === "stock" ? 1 : (stockValueAll > 0 ? Math.min(1, collectedAll / stockValueAll) : 0);
+
     const lines = COST_PRODUCTS.map((p) => {
       const { perBox, packsPerBox } = costOf(p.key);
 
       // Consignment sells in packs, at each store's own pack price
-      const packs = monthVisits.filter((v) => v.product === p.visitKey).reduce((a, v) => a + Number(v.sold || 0), 0);
+      const packsAll = monthVisits.filter((v) => v.product === p.visitKey).reduce((a, v) => a + Number(v.sold || 0), 0);
+      const packs = packsAll * paidRatio;
       const consignRevenue = monthVisits
         .filter((v) => v.product === p.visitKey)
-        .reduce((a, v) => a + Number(v.sold || 0) * Number(priceIndex[v.store_name]?.[p.priceCol] || 0), 0);
+        .reduce((a, v) => a + Number(v.sold || 0) * Number(priceIndex[v.store_name]?.[p.priceCol] || 0), 0) * paidRatio;
 
       // Corporate and credit sell in boxes
       const corpBoxes = monthReports.reduce((a, r) => a + Number(r[p.soldCol] || 0), 0);
@@ -5124,7 +5139,7 @@ function ProfitPage({ authUser, C, sbFetch, logActivity }) {
 
       const boxEquivalent = corpBoxes + creditBoxes + (packsPerBox > 0 ? packs / packsPerBox : 0);
       const cogs = boxEquivalent * perBox;
-      return { ...p, perBox, packsPerBox, packs, corpBoxes, creditBoxes, boxEquivalent, cogs, consignRevenue };
+      return { ...p, perBox, packsPerBox, packs, packsAll, corpBoxes, creditBoxes, boxEquivalent, cogs, consignRevenue };
     });
 
     // Corporate and credit revenue is the invoiced amount, which is not split by
@@ -5139,8 +5154,8 @@ function ProfitPage({ authUser, C, sbFetch, logActivity }) {
     const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
     const priced = lines.every((l) => l.perBox > 0);
 
-    return { lines, revenue, consignRevenue, corpRevenue, creditRevenue, cogs, profit, margin, priced };
-  }, [visits, bigcoReports, creditInvoices, stores, costs, selectedMonth]);
+    return { lines, revenue, consignRevenue, corpRevenue, creditRevenue, cogs, profit, margin, priced, stockValueAll, collectedAll, paidRatio };
+  }, [visits, bigcoReports, creditInvoices, stores, costs, selectedMonth, consignBasis]);
 
   const cell = { padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap" };
   const th = { textAlign: "right", padding: "11px 8px", fontWeight: 700 };
@@ -5197,6 +5212,25 @@ function ProfitPage({ authUser, C, sbFetch, logActivity }) {
             </div>
           )}
 
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px", marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Count a consignment sale when</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[["collected", "The store pays you", "Only the share of stock they have paid for — cost is scaled the same way, so margin stays honest."],
+                ["stock", "The stock leaves the shelf", "Everything logged as sold, paid or not."]].map(([key, label, help]) => (
+                <button key={key} type="button" onClick={() => setConsignBasis(key)}
+                  style={{ flex: 1, minWidth: 230, textAlign: "left", background: consignBasis === key ? C.bg2 : "none", border: `1px solid ${consignBasis === key ? C.gold : C.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: consignBasis === key ? C.goldBright : C.text }}>{label}</div>
+                  <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 3, lineHeight: 1.4 }}>{help}</div>
+                </button>
+              ))}
+            </div>
+            {consignBasis === "collected" && report.stockValueAll > report.collectedAll + 0.005 && (
+              <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 9 }}>
+                Visits logged {money(report.stockValueAll)} of stock as sold; {money(report.collectedAll)} has been paid, so {(report.paidRatio * 100).toFixed(0)}% of it is counted here.
+              </div>
+            )}
+          </div>
+
           {!report.priced && !costsMissing && (
             <div style={{ background: C.amberBg, color: C.amber, padding: "11px 14px", borderRadius: 9, fontSize: 12.5, marginBottom: 16, border: `1px solid ${C.amber}30` }}>
               Some products have no cost set, so profit is overstated. Tap <b>Cost per box</b> to fill them in.
@@ -5243,7 +5277,14 @@ function ProfitPage({ authUser, C, sbFetch, logActivity }) {
                 {report.lines.map((l) => (
                   <tr key={l.key} style={{ borderTop: `1px solid ${C.border}` }}>
                     <td style={{ padding: "10px 14px", fontWeight: 700 }}>{l.label}</td>
-                    <td style={cell}>{l.packs || "—"}</td>
+                    <td style={cell}>
+                      {l.packsAll ? (
+                        <>
+                          {l.packs !== l.packsAll ? <span style={{ color: C.textFaint }}>{l.packsAll} → </span> : null}
+                          {Number(l.packs.toFixed(1))}
+                        </>
+                      ) : "—"}
+                    </td>
                     <td style={cell}>{l.corpBoxes || "—"}</td>
                     <td style={cell}>{l.creditBoxes || "—"}</td>
                     <td style={{ ...cell, color: C.text, fontWeight: 600 }}>{l.boxEquivalent ? l.boxEquivalent.toFixed(1) : "—"}</td>
@@ -5258,7 +5299,7 @@ function ProfitPage({ authUser, C, sbFetch, logActivity }) {
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 18px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Where the sales came from</div>
             {[
-              ["Consignment (packs × store price)", report.consignRevenue],
+              [consignBasis === "collected" ? "Consignment (paid by stores)" : "Consignment (packs × store price)", report.consignRevenue],
               ["Corporate Accounts (invoiced)", report.corpRevenue],
               ["Credit Term (invoiced)", report.creditRevenue],
             ].map(([label, v]) => (
