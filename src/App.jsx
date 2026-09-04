@@ -6627,6 +6627,14 @@ function BigCoPage({ authUser, C, sbFetch, logActivity }) {
   );
 }
 
+// Stock is keyed by product code, so adding an SKU later means adding a code
+// here (and to the sales forms) rather than reshaping the stock tables.
+const STOCK_PRODUCTS = [
+  { key: "pl", label: "Panty Liner" },
+  { key: "night", label: "Night (យប់)" },
+  { key: "day", label: "Day (ថ្ងៃ)" },
+];
+
 function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState([]);
@@ -6638,6 +6646,14 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
   const [showAddSalesperson, setShowAddSalesperson] = useState(false);
   const [newSalespersonName, setNewSalespersonName] = useState("");
   const [saveError, setSaveError] = useState(false);
+  // Warehouse stock. Held as movements rather than a single number, so the
+  // balance can never drift and new SKUs are just new codes.
+  const [stockMoves, setStockMoves] = useState([]);
+  const [stockMissing, setStockMissing] = useState(false);
+  const [showStock, setShowStock] = useState(false);
+  const [stockForm, setStockForm] = useState({ product: "pl", qty: "", reason: "received", reference: "" });
+  const [stockBusy, setStockBusy] = useState(false);
+  const [stockError, setStockError] = useState("");
   const [showNewDN, setShowNewDN] = useState(false);
   const [printingDoc, setPrintingDoc] = useState(null); // { type: 'dn'|'invoice', data }
   const [printingMulti, setPrintingMulti] = useState(null); // array of { type, data, linkedDN? }
@@ -6682,6 +6698,8 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
         setCreditStores(creditRows || []);
         setBigcoStores(bigcoRows || []);
         setSalespeople((salespeopleRows || []).map((r) => r.name));
+        try { setStockMoves((await sbFetch("stock_moves?select=*")) || []); setStockMissing(false); }
+        catch (err) { setStockMissing(true); }
       } catch (e) {
         setSaveError(true);
       } finally {
@@ -6798,6 +6816,24 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
       }
       if (!storeId || !storeName) return false;
 
+      setStockError("");
+      // Refuse to send out more than is held. Checked before anything is
+      // written, so a rejected note leaves no half-made records behind.
+      const wanted = [
+        { product: "pl", qty: parseFloat(dnForm.plQty) || 0 },
+        { product: "night", qty: parseFloat(dnForm.nightQty) || 0 },
+        { product: "day", qty: parseFloat(dnForm.dayQty) || 0 },
+      ];
+      if (!stockMissing) {
+        const short = wanted.filter((w) => w.qty > (stock[w.product] || 0));
+        if (short.length) {
+          setStockError(
+            short.map((w) => `${stockLabel(w.product)}: asked for ${w.qty}, only ${stock[w.product] || 0} in stock`).join(" · ")
+          );
+          return false;
+        }
+      }
+
       const dnNumber = dnForm.dnNumber.trim() || nextDNNumber();
       const [inserted] = await sbFetch("delivery_notes", {
         method: "POST",
@@ -6830,12 +6866,55 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
       setShowNewDN(false);
       setDnForm(emptyDNForm);
       setSaveError(false);
+      if (!stockMissing) await addStockMove(wanted.map((w) => ({ ...w, qty: -w.qty })), "delivery", dnNumber);
+      setStockError("");
       logActivity?.("Created delivery note", storeName, inserted.dn_number);
       return true;
     } catch (e) {
       setSaveError(true);
       return false;
     }
+  }
+
+  // On hand per product code. Any code that appears in a movement shows up,
+  // so a new SKU needs no code change here.
+  const stock = useMemo(() => {
+    const by = {};
+    STOCK_PRODUCTS.forEach((p) => { by[p.key] = 0; });
+    stockMoves.forEach((m) => { by[m.product] = (by[m.product] || 0) + Number(m.qty || 0); });
+    return by;
+  }, [stockMoves]);
+
+  const stockLabel = (code) =>
+    (STOCK_PRODUCTS.find((p) => p.key === code) || {}).label || code;
+
+  async function addStockMove(rows, reason, reference) {
+    const payload = rows
+      .filter((r) => Math.abs(r.qty) > 0.0001)
+      .map((r) => ({ product: r.product, qty: r.qty, reason, reference: reference || null,
+                     move_date: todayStr(), created_by: authUser?.email || "unknown" }));
+    if (!payload.length) return true;
+    try {
+      const ins = await sbFetch("stock_moves", { method: "POST", body: JSON.stringify(payload) });
+      setStockMoves((prev) => [...prev, ...(ins || payload)]);
+      return true;
+    } catch (e) {
+      setStockMissing(true);
+      return false;
+    }
+  }
+
+  async function submitStockForm() {
+    const qty = parseFloat(stockForm.qty) || 0;
+    if (!qty) return;
+    setStockBusy(true);
+    const signed = stockForm.reason === "received" ? Math.abs(qty) : qty;
+    const ok = await addStockMove([{ product: stockForm.product, qty: signed }], stockForm.reason, stockForm.reference);
+    if (ok) {
+      logActivity?.("Stock " + stockForm.reason, stockLabel(stockForm.product), `${signed > 0 ? "+" : ""}${signed}`);
+      setStockForm({ product: stockForm.product, qty: "", reason: stockForm.reason, reference: "" });
+    }
+    setStockBusy(false);
   }
 
   async function deleteDeliveryNote(id) {
@@ -6912,6 +6991,75 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
           </button>
         </div>
       </div>
+
+      {/* Warehouse stock — lives here because this is where stock goes out. */}
+      <div style={{ background: C.surface, border: `1px solid ${showStock ? C.gold : C.border}`, borderRadius: 12, padding: "13px 16px", marginBottom: 16 }}>
+        <div onClick={() => setShowStock(!showStock)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, cursor: "pointer", flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>Stock on hand</div>
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
+            {STOCK_PRODUCTS.map((pr) => {
+              const n = stock[pr.key] || 0;
+              return (
+                <div key={pr.key} style={{ fontSize: 12.5 }}>
+                  <span style={{ color: C.textFaint }}>{pr.label} </span>
+                  <b style={{ fontFamily: "'IBM Plex Mono', monospace", color: n <= 0 ? C.rose : n <= 5 ? C.amber : C.emerald }}>{n}</b>
+                </div>
+              );
+            })}
+            <span style={{ fontSize: 11, color: C.textFaint }}>{showStock ? "close" : "adjust"}</span>
+          </div>
+        </div>
+
+        {showStock && (
+          stockMissing ? (
+            <div style={{ background: C.roseBg, color: C.rose, padding: "11px 13px", borderRadius: 8, fontSize: 12.5, marginTop: 12, border: `1px solid ${C.rose}30` }}>
+              The <b>stock_moves</b> table doesn't exist yet — run the stock SQL in Supabase, then reload. Until then delivery notes are not stock-checked.
+            </div>
+          ) : (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1.3fr 0.8fr 1fr 1fr auto", gap: 8, alignItems: "end" }}>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint, display: "block", marginBottom: 4 }}>Product</label>
+                  <select value={stockForm.product} onChange={(e) => setStockForm({ ...stockForm, product: e.target.value })} style={{ background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "9px 10px", fontSize: 13, width: "100%" }}>
+                    {STOCK_PRODUCTS.map((pr) => <option key={pr.key} value={pr.key}>{pr.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint, display: "block", marginBottom: 4 }}>Quantity</label>
+                  <input inputMode="decimal" value={stockForm.qty} onChange={(e) => setStockForm({ ...stockForm, qty: e.target.value })} placeholder="0"
+                    style={{ background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "9px 10px", fontSize: 13, width: "100%", textAlign: "right" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint, display: "block", marginBottom: 4 }}>What happened</label>
+                  <select value={stockForm.reason} onChange={(e) => setStockForm({ ...stockForm, reason: e.target.value })} style={{ background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "9px 10px", fontSize: 13, width: "100%" }}>
+                    <option value="received">Received in</option>
+                    <option value="adjustment">Correction (use −5 to reduce)</option>
+                    <option value="return">Returned from a store</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: C.textFaint, display: "block", marginBottom: 4 }}>Reference</label>
+                  <input value={stockForm.reference} onChange={(e) => setStockForm({ ...stockForm, reference: e.target.value })} placeholder="PO no."
+                    style={{ background: C.bg2, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "9px 10px", fontSize: 13, width: "100%" }} />
+                </div>
+                <button onClick={submitStockForm} disabled={stockBusy} className="primarybtn"
+                  style={{ background: `linear-gradient(135deg, ${C.goldBright}, ${C.gold})`, color: "#1A1508", border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  {stockBusy ? "Saving…" : "Save"}
+                </button>
+              </div>
+              <div style={{ fontSize: 10.5, color: C.textFaint, marginTop: 10 }}>
+                Delivery notes take stock out automatically. Enter what arrives from the factory here.
+              </div>
+            </div>
+          )
+        )}
+      </div>
+
+      {stockError && (
+        <div style={{ background: C.roseBg, color: C.rose, padding: "12px 14px", borderRadius: 9, fontSize: 13, marginBottom: 16, border: `1px solid ${C.rose}30` }}>
+          <b>Not enough stock.</b> {stockError}
+        </div>
+      )}
 
       {saveError && (
         <div style={{ background: C.roseBg, color: C.rose, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
@@ -7246,6 +7394,11 @@ function DeliveryNotePage({ authUser, C, sbFetch, logActivity }) {
               <textarea value={dnForm.notes} onChange={(e) => setDnForm({ ...dnForm, notes: e.target.value })} style={{ width: "100%", minHeight: 55, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 14, background: C.bg2, color: C.text }} />
             </div>
 
+            {stockError && (
+              <div style={{ background: C.roseBg, color: C.rose, padding: "12px 14px", borderRadius: 9, fontSize: 13, marginBottom: 12, border: `1px solid ${C.rose}40` }}>
+                <b>Not enough stock.</b> {stockError}
+              </div>
+            )}
             <button
               onClick={createDeliveryNote}
               disabled={dnForm.storeMode === "existing" ? !dnForm.storeId : !dnForm.newStoreName.trim()}
